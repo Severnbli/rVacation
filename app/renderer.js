@@ -342,8 +342,36 @@ function editor(type, title, content, id = '', submit = 'save') {
 
 const limitInput = value => field('limit', 'limit', value ?? '', 'number', 'min="0" step="1"')
 const nameInput = value => field('name', 'name', value, 'text', 'required maxlength="160" autofocus')
-const datePair = item => `<div class="pair">${field('start', 'start', item.start, 'date', 'required')}
-  ${field('end', 'end', item.end, 'date', 'required')}</div>`
+
+function dateRange({ start = '', end = '' }) {
+  const startText = start ? displayDate(start) : t('none')
+  const endText = end ? displayDate(end) : t('none')
+  const label = `${t('dateRange')}. ${t('start')} ${startText}. ${t('end')} ${endText}`
+  return `<div class="range-field">
+    <input type="hidden" name="start" value="${escape(start)}">
+    <input type="hidden" name="end" value="${escape(end)}">
+    <button type="button" class="range-trigger" data-action="record-dates" aria-haspopup="dialog" aria-label="${escape(label)}">
+      <span class="range-icon" aria-hidden="true"></span>
+      <span><small>${t('start')}</small><strong>${escape(startText)}</strong></span>
+      <span><small>${t('end')}</small><strong>${escape(endText)}</strong></span>
+    </button>
+    </div>`
+}
+
+function chooseRecordDates(target) {
+  const form = target.form
+  if (form.dataset.saving) return
+  const dates = [form.elements.start.value, form.elements.end.value].filter(Boolean)
+  openDatePicker({
+    title: t('dateRange'), dates, language, t, today: today(), singleRange: true,
+    onApply: ([start, end]) => {
+      target.closest('.range-field').outerHTML = dateRange({ start, end })
+      if (form.dataset.form === 'vacation') suggestPeriod(form)
+      setFormError(form, '')
+      form.querySelector('[data-action="record-dates"]').focus()
+    },
+  })
+}
 
 function workerEdit(id) {
   const item = snapshot.records.workers.find(item => item.id === id) ?? {}
@@ -358,7 +386,7 @@ function groupEdit(id) {
 
 function periodEdit(id) {
   const item = snapshot.records.periods.find(item => item.id === id) ?? {}
-  editor('period', id ? 'editPeriod' : 'addPeriod', nameInput(item.name) + datePair(item), id)
+  editor('period', id ? 'editPeriod' : 'addPeriod', nameInput(item.name) + dateRange(item), id)
 }
 
 function suggestPeriod(form) {
@@ -374,7 +402,7 @@ function vacationEdit(id, workerId) {
   const item = records.vacations.find(item => item.id === id)
   editor('vacation', item ? 'editVacation' : 'recordVacation',
     `<label>${t('worker')}<select name="workerId" required>${options(records.workers.slice().sort((a, b) => a.name.localeCompare(b.name, language)), item?.workerId ?? workerId, 'chooseWorker')}</select></label>
-    ${datePair(item ?? { start: today(), end: today() })}
+    ${dateRange(item ?? { start: today(), end: today() })}
     <label>${t('period')}<select name="periodId" required>${options(records.periods, item?.periodId, 'choosePeriod')}</select></label>
     <small>${t('periodHelp')}</small>`, id)
   if (!item) suggestPeriod(dialog.querySelector('form'))
@@ -405,6 +433,11 @@ async function submitForm(event) {
   try {
     const data = new FormData(form)
     const value = Object.fromEntries(data)
+    if ((type === 'period' || type === 'vacation') && (!value.start || !value.end)) {
+      setFormError(form, 'selectRangeStart')
+      form.querySelector('[data-action="record-dates"]').focus()
+      return
+    }
     if (type === 'worker' || type === 'import') value.groups = data.getAll('groups')
     if (type === 'worker' || type === 'group') value.limit = value.limit === '' ? null : Number(value.limit)
     if (type === 'settings') {
@@ -459,10 +492,7 @@ document.addEventListener('change', event => {
   }
   if (source.dataset.filter && source.dataset.filter !== 'search') applyFilter(source)
   const form = source.form
-  if (form?.dataset.form === 'vacation') {
-    if (source.name === 'periodId') form.dataset.periodManual = 'yes'
-    if (source.name === 'start') suggestPeriod(form)
-  }
+  if (form?.dataset.form === 'vacation' && source.name === 'periodId') form.dataset.periodManual = 'yes'
 })
 document.addEventListener('input', event => {
   if (event.target.dataset.filter === 'search') applyFilter(event.target)
@@ -512,6 +542,7 @@ document.addEventListener('click', async event => {
     }
     case 'close': if (!target.form.dataset.saving) dialog.close(); break
     case 'choose-dates': chooseSettingsDates(target); break
+    case 'record-dates': chooseRecordDates(target); break
     case 'remove-date': removeSettingsDate(target); break
     case 'open-repository': {
       event.preventDefault()

@@ -1,4 +1,4 @@
-function openDatePicker({ title, dates, language, t, today, onApply }) {
+function openDatePicker({ title, dates, language, t, today, singleRange = false, onApply }) {
   const picker = document.querySelector('#date-picker')
   const day = 86400000
   const firstDate = Date.UTC(1000, 0, 1)
@@ -7,21 +7,30 @@ function openDatePicker({ title, dates, language, t, today, onApply }) {
   const boundedDate = time => new Date(Math.min(lastDate, Math.max(firstDate, time)))
   const weekStart = new Intl.Locale(language).getWeekInfo().firstDay % 7
   const weekday = dateFormatter(language, 'weekday')
+  const monthName = dateFormatter(language, 'monthName')
   const monthLabel = dateFormatter(language, 'month')
   const dateLabel = dateFormatter(language, 'full')
+  const shortDate = dateFormatter(language, 'medium')
   const number = new Intl.NumberFormat(language)
-  const selected = new Set(dates)
+  const selected = new Set(singleRange ? [] : dates)
   const sorted = [...selected].sort()
-  let cursor = boundedDate(Date.parse(sorted.find(date => date >= today) ?? sorted.at(-1) ?? today))
+  let [start = '', end = ''] = singleRange ? dates : []
+  const initial = singleRange ? start || today : sorted.find(date => date >= today) ?? sorted.at(-1) ?? today
+  let cursor = boundedDate(Date.parse(initial))
   let rangeStart
 
   picker.innerHTML = `<form class="dialog-content" method="dialog">
     <h2 id="date-picker-title">${title}</h2>
     <div class="calendar-header">
       <button type="button" data-month-step="-1" aria-label="${t('previousMonth')}" title="${t('previousMonth')}">‹</button>
-      <strong id="calendar-month" aria-live="polite"></strong>
+      <div class="calendar-month-fields">
+        <select name="month" aria-label="${t('month')}">${Array.from({ length: 12 }, (_, index) =>
+          `<option value="${index}">${monthName(new Date(Date.UTC(2024, index, 1)))}</option>`).join('')}</select>
+        <input name="year" type="number" min="1000" max="9999" step="1" aria-label="${t('year')}">
+      </div>
       <button type="button" data-month-step="1" aria-label="${t('nextMonth')}" title="${t('nextMonth')}">›</button>
     </div>
+    <span class="visually-hidden" id="calendar-month" aria-live="polite"></span>
     <table class="calendar" aria-labelledby="calendar-month">
       <thead><tr>${Array.from({ length: 7 }, (_, index) => {
         const date = new Date(Date.UTC(2024, 0, 7 + weekStart + index))
@@ -30,7 +39,7 @@ function openDatePicker({ title, dates, language, t, today, onApply }) {
       <tbody></tbody>
     </table>
     <div class="calendar-options">
-      <label class="check"><input name="range" type="checkbox">${t('selectDateRange')}</label>
+      ${singleRange ? '' : `<label class="check"><input name="range" type="checkbox">${t('selectDateRange')}</label>`}
       <p role="status"></p>
     </div>
     <div class="actions dialog-actions">
@@ -46,6 +55,8 @@ function openDatePicker({ title, dates, language, t, today, onApply }) {
   const previous = form.querySelector('[data-month-step="-1"]')
   const next = form.querySelector('[data-month-step="1"]')
   const range = form.elements.range
+  const monthInput = form.elements.month
+  const yearInput = form.elements.year
   const status = form.querySelector('[role="status"]')
   const apply = form.querySelector('[value="apply"]')
   const weekOffset = date => (date.getUTCDay() - weekStart + 7) % 7
@@ -54,14 +65,23 @@ function openDatePicker({ title, dates, language, t, today, onApply }) {
     const active = iso(cursor)
     for (const button of body.querySelectorAll('button')) {
       const date = button.dataset.date
-      button.setAttribute('aria-pressed', selected.has(date))
+      button.setAttribute('aria-pressed', singleRange ? date >= start && date <= end : selected.has(date))
       button.classList.toggle('calendar-range-start', date === rangeStart)
+      button.classList.toggle('calendar-range-middle', singleRange && date > start && date < end)
       button.tabIndex = date === active ? 0 : -1
     }
-    const count = `${t('selectedDates')} (${number.format(selected.size)})`
-    const summary = range.checked ? `${count} · ${t(rangeStart ? 'selectRangeEnd' : 'selectRangeStart')}` : count
+    let summary
+    if (singleRange) {
+      if (rangeStart) summary = t('selectRangeEndOrApply')
+      else if (!start) summary = t('selectRangeStart')
+      else if (start === end) summary = dateLabel(new Date(start))
+      else summary = `${shortDate(new Date(start))} – ${shortDate(new Date(end))}`
+    } else {
+      const count = `${t('selectedDates')} (${number.format(selected.size)})`
+      summary = range.checked ? `${count} · ${t(rangeStart ? 'selectRangeEnd' : 'selectRangeStart')}` : count
+    }
     if (status.textContent !== summary) status.textContent = summary
-    apply.disabled = Boolean(rangeStart)
+    apply.disabled = singleRange ? !start : Boolean(rangeStart)
   }
 
   function showMonth() {
@@ -80,17 +100,19 @@ function openDatePicker({ title, dates, language, t, today, onApply }) {
         ${value === today ? 'aria-current="date"' : ''}>${number.format(dayOfMonth)}</button></td>`
     }).join('')}</tr>`).join('')
     monthTitle.textContent = monthLabel(start)
+    monthInput.value = month
+    yearInput.value = year
     previous.disabled = +start === firstDate
     next.disabled = year === 9999 && month === 11
     showSelection()
   }
 
-  function moveMonth(step) {
-    const year = cursor.getUTCFullYear()
-    const month = cursor.getUTCMonth() + step
+  function monthDate(year, month) {
     const length = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
     return boundedDate(Date.UTC(year, month, Math.min(cursor.getUTCDate(), length)))
   }
+
+  const moveMonth = step => monthDate(cursor.getUTCFullYear(), cursor.getUTCMonth() + step)
 
   function focusDay() {
     body.querySelector('[tabindex="0"]').focus()
@@ -107,7 +129,14 @@ function openDatePicker({ title, dates, language, t, today, onApply }) {
     }
     if (!date) return
     cursor = new Date(date)
-    if (range.checked) {
+    if (singleRange) {
+      if (rangeStart) {
+        [start, end] = [rangeStart, date].sort()
+        rangeStart = undefined
+      } else {
+        start = end = rangeStart = date
+      }
+    } else if (range.checked) {
       if (rangeStart) {
         const endpoints = [rangeStart, date].sort()
         const end = Date.parse(endpoints[1])
@@ -143,14 +172,31 @@ function openDatePicker({ title, dates, language, t, today, onApply }) {
     focusDay()
   })
 
-  range.addEventListener('change', () => {
+  range?.addEventListener('change', () => {
     rangeStart = undefined
     showSelection()
+  })
+  monthInput.addEventListener('change', () => {
+    cursor = monthDate(cursor.getUTCFullYear(), Number(monthInput.value))
+    showMonth()
+  })
+  function changeYear() {
+    if (yearInput.validity.valid && yearInput.value) {
+      cursor = monthDate(yearInput.valueAsNumber, cursor.getUTCMonth())
+    }
+    showMonth()
+  }
+  yearInput.addEventListener('change', changeYear)
+  yearInput.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    changeYear()
+    focusDay()
   })
   form.addEventListener('submit', event => {
     event.preventDefault()
     picker.close()
-    if (event.submitter?.value === 'apply') onApply([...selected].sort())
+    if (event.submitter?.value === 'apply') onApply(singleRange ? [start, end] : [...selected].sort())
   })
 
   showMonth()

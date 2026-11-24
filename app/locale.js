@@ -82,6 +82,9 @@ const messages = {
   holidays: ['Holiday dates', 'Даты святаў', 'Даты праздников'],
   deductible: ['Dates that always count within vacation', 'Даты, якія заўсёды залічваюцца падчас адпачынку', 'Даты, которые всегда засчитываются в отпуске'],
   chooseDates: ['Choose dates', 'Выбраць даты', 'Выбрать даты'],
+  dateRange: ['Date range', 'Дыяпазон дат', 'Диапазон дат'],
+  month: ['Month', 'Месяц', 'Месяц'],
+  year: ['Year', 'Год', 'Год'],
   noDates: ['No dates selected', 'Даты не выбраны', 'Даты не выбраны'],
   removeDate: ['Remove {date}', 'Выдаліць дату {date}', 'Удалить дату {date}'],
   previousMonth: ['Previous month', 'Папярэдні месяц', 'Предыдущий месяц'],
@@ -89,6 +92,7 @@ const messages = {
   selectDateRange: ['Select a range', 'Выбраць дыяпазон дат', 'Выбрать диапазон дат'],
   selectRangeStart: ['Choose the first day of the range.', 'Выберыце першы дзень дыяпазону.', 'Выберите первый день диапазона.'],
   selectRangeEnd: ['Choose the last day of the range.', 'Выберыце апошні дзень дыяпазону.', 'Выберите последний день диапазона.'],
+  selectRangeEndOrApply: ['Choose the last day, or apply for one day.', 'Выберыце апошні дзень або пацвердзіце выбар аднаго дня.', 'Выберите последний день или подтвердите выбор одного дня.'],
   selectedDates: ['Selected dates', 'Выбраныя даты', 'Выбранные даты'],
   applyDates: ['Apply dates', 'Ужыць даты', 'Применить даты'],
   updates: ['App updates', 'Абнаўленні праграмы', 'Обновления приложения'],
@@ -128,6 +132,7 @@ const messages = {
 
 const dateFormats = {
   weekday: { weekday: 'short' },
+  monthName: { month: 'long' },
   month: { month: 'long', year: 'numeric' },
   medium: { dateStyle: 'medium' },
   full: { dateStyle: 'full' },
@@ -148,6 +153,7 @@ function dateFormatter(language, style) {
     const month = date.getUTCMonth()
     const year = date.getUTCFullYear()
     if (style === 'weekday') return shortWeekdays[date.getUTCDay()]
+    if (style === 'monthName') return months[month]
     if (style === 'month') return `${months[month]} ${year}`
     const day = date.getUTCDate()
     if (style === 'full') return `${weekdays[date.getUTCDay()]}, ${day} ${dateMonths[month]} ${year} г.`
