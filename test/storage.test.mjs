@@ -1,0 +1,132 @@
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import test from 'node:test'
+import { initialRecords } from '../app/domain.mjs'
+import { openRecords } from '../app/storage.mjs'
+
+const legacyRecords = {
+  workers: [{ id: 'worker', name: 'First Worker', groups: ['group'], limit: null }],
+  groups: [{ id: 'group', name: 'Office', limit: 2 }],
+  periods: [{ id: 'period', name: '26/27', start: '2026-01-01', end: '2027-12-31' }],
+  vacations: [{ id: 'vacation', workerId: 'worker', periodId: 'period', start: '2026-01-02', end: '2026-01-04', days: 3 }],
+  settings: { counting: 'working', holidays: ['2026-01-02'], deductible: [] },
+}
+
+async function directoryFor(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'rvacation-test-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  return directory
+}
+
+function writeLegacy(file, records = legacyRecords) {
+  const database = new DatabaseSync(file)
+  try {
+    database.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE records (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        revision INTEGER NOT NULL,
+        contents TEXT NOT NULL
+      );
+    `)
+    database.prepare('INSERT INTO records VALUES (1, 7, ?)').run(JSON.stringify(records))
+  } finally {
+    database.close()
+  }
+}
+
+function addWorker(revision, name = 'Local Worker') {
+  return { revision, change: { type: 'worker', value: { name, limit: 25, groups: [] } } }
+}
+
+test('local changes persist across opens and stale writes cannot overwrite newer changes', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  const first = openRecords(file)
+  const other = openRecords(file)
+  let saved
+  try {
+    assert.deepEqual(first.read(), { revision: 0, records: initialRecords(), balances: [] })
+    saved = first.change(addWorker(0))
+    assert.equal(saved.revision, 1)
+    assert.throws(() => other.change(addWorker(0, 'Stale Worker')), { message: 'conflict' })
+    assert.throws(() => first.change(addWorker(1, '')), { message: 'invalidName' })
+  } finally {
+    other.close()
+    first.close()
+  }
+  const reopened = openRecords(file)
+  try {
+    assert.deepEqual(reopened.read(), saved)
+  } finally {
+    reopened.close()
+  }
+})
+
+test('the old service database migrates in place with its revision and recorded balances', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  writeLegacy(file)
+  const records = openRecords(file)
+  try {
+    assert.deepEqual(records.read(), {
+      revision: 7, records: legacyRecords,
+      balances: [{ id: 'worker', rule: { max: 2, personal: false, groupNames: ['Office'] }, used: { period: 3 } }],
+    })
+  } finally {
+    records.close()
+  }
+  const database = new DatabaseSync(file)
+  try {
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 1)
+  } finally {
+    database.close()
+  }
+})
+
+test('import preserves old records and cannot overwrite local changes', async t => {
+  const directory = await directoryFor(t)
+  const source = join(directory, 'service.sqlite')
+  const invalidSource = join(directory, 'invalid.sqlite')
+  writeLegacy(source)
+  writeLegacy(invalidSource, { ...legacyRecords, workers: [] })
+  const original = await readFile(source)
+  const records = openRecords(join(directory, 'rvacation.sqlite'))
+  try {
+    assert.throws(() => records.importLegacy(invalidSource), { message: 'invalidDatabaseImport' })
+    assert.equal(records.read().revision, 0)
+    const imported = records.importLegacy(source)
+    assert.equal(imported.revision, 1)
+    assert.deepEqual(imported.records, legacyRecords)
+    const saved = records.change(addWorker(1))
+    assert.throws(() => records.importLegacy(source), { message: 'databaseImportUnavailable' })
+    assert.deepEqual(records.read(), saved)
+    assert.deepEqual(await readFile(source), original)
+  } finally {
+    records.close()
+  }
+})
+
+test('failed migration and a newer schema leave the existing records intact', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  writeLegacy(file, { ...legacyRecords, settings: null })
+  assert.throws(() => openRecords(file), { message: 'Invalid vacations or settings' })
+  const database = new DatabaseSync(file)
+  let contents
+  try {
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 0)
+    contents = database.prepare('SELECT contents FROM records').get().contents
+    database.exec('PRAGMA user_version = 100')
+  } finally {
+    database.close()
+  }
+  assert.throws(() => openRecords(file), { message: 'databaseVersion' })
+  const preserved = new DatabaseSync(file)
+  try {
+    assert.equal(preserved.prepare('PRAGMA user_version').get().user_version, 100)
+    assert.equal(preserved.prepare('SELECT contents FROM records').get().contents, contents)
+  } finally {
+    preserved.close()
+  }
+})

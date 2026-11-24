@@ -8,8 +8,9 @@ const localeNames = { en: 'English', be: 'Беларуская', ru: 'Русск
 let language = localStorage.getItem('language') || navigator.language.split('-')[0]
 if (!localeNames[language]) language = 'en'
 
-let connection
 let snapshot
+let recordsError
+let importingDatabase = false
 let page = 'overview'
 let periodId = ''
 let groupId = ''
@@ -115,7 +116,9 @@ function overview(records) {
     ['groups', records.groups.length],
     ['vacationsInPeriod', records.vacations.filter(item => item.periodId === periodId).length],
   ]
-  return heading('overview', button('refresh', 'refresh') + button('new-vacation', 'recordVacation', '', 'primary')) +
+  return heading('overview', button('new-vacation', 'recordVacation', '', 'primary')) +
+    (snapshot.showLegacyImport ? `<section class="panel setup"><div class="panel-body"><h2>${t('legacyRecords')}</h2>
+    <p>${t('legacyRecordsHelp')}</p><div class="actions">${button('page', 'settings', 'settings')}</div></div></section>` : '') +
     (!records.workers.length || !records.periods.length ? `<section class="panel setup"><div class="panel-body"><h2>${t('getStarted')}</h2>
     <p>${t('vacationNeedsRecords')}</p><div class="actions">${!records.workers.length ? button('page', 'workers', 'workers') : ''}
     ${!records.periods.length ? button('page', 'periods', 'periods') : ''}</div></div></section>` : '') +
@@ -159,20 +162,26 @@ function renderVacations(records) {
       <td>${displayDate(item.end)}</td><td>${number(item.days)}</td><td><div class="actions">
       ${button('edit-vacation', 'edit', item.id, 'small')}${button('delete-vacation', 'delete', item.id, 'small danger')}</div></td></tr>`
   })
-  return heading('vacations', button('refresh', 'refresh') + button('new-vacation', 'recordVacation', '', 'primary')) +
+  return heading('vacations', button('new-vacation', 'recordVacation', '', 'primary')) +
     `<section class="panel">${table(['worker', 'period', 'start', 'end', 'days', 'actions'], rows, 'noVacations')}</section>`
+}
+
+function recordsStatus() {
+  if (!recordsError) return `<p role="status">${t('loadingRecords')}</p>`
+  return `<p class="error" role="alert">${t(recordsError)}</p>
+    <div class="actions">${button('retry-records', 'retry')}</div>`
 }
 
 function settings() {
   const current = snapshot?.records.settings
-  return heading('settings') + `<section class="panel"><form class="panel-body" data-form="connection">
-    <h2>${t('connection')}</h2><p>${t('connectionHelp')}</p>
-    ${field('url', 'serverAddress', connection?.url, 'url', 'required placeholder="https://vacations.example.com"')}
-    ${field('key', 'accessKey', '', 'password', connection?.hasKey ? '' : 'required')}
-    ${connection?.hasKey ? `<small>${t('leaveKey')}</small>` : ''}
-    ${connection && !connection.stored ? `<small>${t('sessionKey')}</small>` : ''}
-    <div class="actions"><button class="primary">${t('connect')}</button></div>
-    <p class="error" role="alert"></p></form></section>
+  return heading('settings') + `
+    <section class="panel"><div class="panel-body">
+    <h2>${t('localRecords')}</h2><p>${t('localRecordsHelp')}</p>
+    ${snapshot ? '' : recordsStatus()}
+    <div class="actions">${button('data-folder', 'openDataFolder')}
+    ${snapshot?.revision === 0 ? button('database-import', 'importDatabase') : ''}</div>
+    <p id="database-import-error" class="error" role="alert" hidden></p>
+    </div></section>
     ${current ? `<section class="panel"><form class="panel-body" data-form="settings">
     <h2>${t('dayCounting')}</h2><p>${t('countingHelp')}</p>
     <label>${t('countRule')}<select name="counting">${options(['calendar', 'weekdays', 'working'].map(id => ({ id, name: t(id) })), current.counting)}</select></label>
@@ -203,8 +212,7 @@ function render() {
     main.innerHTML = settings()
     renderUpdate()
   } else if (!snapshot) {
-    main.innerHTML = heading(page) + `<section class="panel"><div class="panel-body"><p>${t('connectionRequired')}</p>
-      <div class="actions">${button('page', 'settings', 'settings', 'primary')}</div></div></section>`
+    main.innerHTML = heading(page) + `<section class="panel"><div class="panel-body">${recordsStatus()}</div></section>`
   } else {
     const renderPage = { overview, workers, groups: renderGroups, periods: renderPeriods, vacations: renderVacations }
     main.innerHTML = renderPage[page](snapshot.records)
@@ -222,11 +230,38 @@ function setSnapshot(result) {
   if (!result.records.groups.some(group => group.id === groupId)) groupId = ''
 }
 
-async function refresh() {
+async function loadRecords() {
   const result = await desktop.getRecords()
-  if (result.error) return toast(result.error)
-  setSnapshot(result)
+  recordsError = result.error
+  if (!result.error) setSnapshot(result)
   render()
+}
+
+async function importDatabase(target) {
+  if (importingDatabase) return
+  importingDatabase = true
+  target.disabled = true
+  const previousError = document.querySelector('#database-import-error')
+  previousError.hidden = true
+  try {
+    const result = await desktop.importDatabase()
+    if (result.error) {
+      const error = document.querySelector('#database-import-error')
+      if (error) {
+        error.hidden = false
+        error.textContent = t(result.error)
+      }
+    } else if (!result.canceled) {
+      setSnapshot(result)
+      render()
+      toast('databaseImported')
+      if (page === 'settings') main.querySelector('h1').focus()
+    }
+  } finally {
+    importingDatabase = false
+    target.disabled = false
+    if (target.isConnected) target.focus()
+  }
 }
 
 function groupPicker(selected = []) {
@@ -311,35 +346,27 @@ async function submitForm(event) {
   try {
     const data = new FormData(form)
     const value = Object.fromEntries(data)
-    if (type === 'connection') {
-      const result = await desktop.connect(value)
-      if (result.error) return setFormError(form, result.error)
-      connection = result.connection
-      setSnapshot(result)
-      page = 'overview'
-    } else {
-      if (type === 'worker' || type === 'import') value.groups = data.getAll('groups')
-      if (type === 'worker' || type === 'group') value.limit = value.limit === '' ? null : Number(value.limit)
-      if (type === 'settings') {
-        value.holidays = splitDates(value.holidays)
-        value.deductible = splitDates(value.deductible)
-      }
-      if (type === 'import') {
-        value.limit = null
-        value.names = value.names.split(/\r?\n/).map(line => line.split('\t', 1)[0].trim()).filter(Boolean)
-        if (value.header) value.names.shift()
-      }
-      const result = await desktop.change({ revision: snapshot.revision, change: { type, id: form.dataset.id || undefined, value } })
-      if (result.error === 'conflict') {
-        const latest = await desktop.getRecords()
-        if (!latest.error) setSnapshot(latest)
-      }
-      if (result.error) return setFormError(form, result.error)
-      setSnapshot(result)
+    if (type === 'worker' || type === 'import') value.groups = data.getAll('groups')
+    if (type === 'worker' || type === 'group') value.limit = value.limit === '' ? null : Number(value.limit)
+    if (type === 'settings') {
+      value.holidays = splitDates(value.holidays)
+      value.deductible = splitDates(value.deductible)
     }
+    if (type === 'import') {
+      value.limit = null
+      value.names = value.names.split(/\r?\n/).map(line => line.split('\t', 1)[0].trim()).filter(Boolean)
+      if (value.header) value.names.shift()
+    }
+    const result = await desktop.change({ revision: snapshot.revision, change: { type, id: form.dataset.id || undefined, value } })
+    if (result.error === 'conflict') {
+      const latest = await desktop.getRecords()
+      if (!latest.error) setSnapshot(latest)
+    }
+    if (result.error) return setFormError(form, result.error)
+    setSnapshot(result)
     if (dialog.open) dialog.close()
     render()
-    toast(type === 'connection' ? 'connected' : 'saved')
+    toast('saved')
     main.querySelector('h1')?.focus()
   } finally {
     delete form.dataset.saving
@@ -396,7 +423,19 @@ document.addEventListener('click', async event => {
       else main.querySelector('h1').focus()
       break
     }
-    case 'refresh': await refresh(); break
+    case 'retry-records': {
+      target.disabled = true
+      await loadRecords()
+      const focusTarget = main.querySelector('[data-action="retry-records"]') ?? main.querySelector('h1')
+      focusTarget.focus()
+      break
+    }
+    case 'database-import': await importDatabase(target); break
+    case 'data-folder': {
+      const result = await desktop.openDataFolder()
+      if (result?.error) toast(result.error)
+      break
+    }
     case 'new-worker': case 'edit-worker': workerEdit(id); break
     case 'new-group': case 'edit-group': groupEdit(id); break
     case 'new-period': case 'edit-period': periodEdit(id); break
@@ -422,18 +461,10 @@ async function initialize() {
     updateState = state
     renderUpdate()
   })
-  const [saved, update] = await Promise.all([desktop.getConnection(), desktop.getUpdate()])
-  connection = saved
+  const [update] = await Promise.all([desktop.getUpdate(), loadRecords()])
   version = update.version
   updateState = update.state
-  if (connection.hasKey) {
-    const result = await desktop.getRecords()
-    if (result.error) {
-      page = 'settings'
-      toast(result.error)
-    } else setSnapshot(result)
-  } else page = 'settings'
-  render()
+  renderUpdate()
 }
 
 render()

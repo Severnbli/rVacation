@@ -2,7 +2,13 @@
 
 ## Product scope
 
-rVacation is a desktop app for secretaries to maintain worker records, record vacations, and see the allowance used and remaining for each worker and period. The first version targets Windows and Linux. An office-hosted Node.js service stores shared records in SQLite and detects concurrent edits by revision.
+rVacation is a desktop app for secretaries to maintain worker records, record vacations, and see the allowance used and remaining for each worker and period. It targets Windows and Linux. The desktop app opens a SQLite database in its per-user data folder and handles records locally.
+
+## Local storage and updates
+
+- Store `rvacation.sqlite` outside the installation directory. The Electron main process owns the database and applies the same vacation rules for every change.
+- Use SQLite's `user_version` to track schema migrations. Run pending migrations in a transaction and advance the schema version only when the migration succeeds. Keep the database intact if opened by a version of the app that cannot read it.
+- Offer import from a backup of the former service before the first local save. Preserve record links, recorded day counts, and day-counting settings. Local records are independent on each installation.
 
 ## Workers, groups, and periods
 
@@ -23,7 +29,7 @@ Ship English (`en`), Belarusian (`be`), and Russian (`ru`) from the first releas
 ## GitHub CI and releases
 
 - Develop features on `dev` and merge into `main` through a pull request. GitHub Actions tests and packages both platforms on changes to `dev` and on pull requests into `main`.
-- The manual Release workflow publishes the Windows NSIS installer, Linux AppImage, updater metadata, and service source archive through GitHub Releases from `main`. The desktop app checks for updates at launch and offers to restart once the update has downloaded. Desktop updates leave the shared database on the host.
+- The manual Release workflow publishes the Windows NSIS installer, Linux AppImage, and updater metadata through GitHub Releases from `main`. The desktop app checks for updates at launch and offers to restart once the update has downloaded. Desktop updates retain the local database.
 - Give the release workflow an optional `major.minor` input. With no input, increment the patch of the latest published version. With a newer major or minor selection, release the selected `major.minor` at patch `0`.
 
 | Latest version | `major.minor` input | Next version |
@@ -36,11 +42,10 @@ The first release defaults to `0.1.0`. An explicit series must be higher than th
 
 ## UI and UX
 
-Start each task by reviewing how it affects the secretary's workflow, including the first-use experience, feedback when records cannot be saved, and recovery after a conflict or connection failure. Check affected screens with a keyboard and review the layout in all three shipping languages.
+Start each task by reviewing how it affects the secretary's workflow, including the first-use experience, feedback when records cannot be saved, and recovery when the local database cannot be opened. Check affected screens with a keyboard and review the layout in all three shipping languages.
 
 ## Open decisions
 
-- Whether a future version should support offline use or per-user accounts.
 - Whether to split one vacation between multiple periods.
 - Whether to provide built-in holiday calendars or keep office-managed dates.
 - Signing and packaging for additional operating system architectures.

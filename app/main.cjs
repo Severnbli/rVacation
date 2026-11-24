@@ -1,84 +1,41 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
 const { autoUpdater } = require('electron-updater')
+const { existsSync } = require('node:fs')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const Papa = require('papaparse')
 const { readSheet } = require('read-excel-file/node')
+const { RecordError } = require('./domain.mjs')
+const { openRecords } = require('./storage.mjs')
 
 let window
-let configuration = { url: '', key: '' }
+let records
 let updateState = 'idle'
 const entry = path.join(__dirname, 'index.html')
 
-function secureStorage() {
-  return safeStorage.isEncryptionAvailable() &&
-    (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')
+function localRecords() {
+  return records ??= openRecords(path.join(app.getPath('userData'), 'rvacation.sqlite'))
 }
 
-function configurationFile() {
-  return path.join(app.getPath('userData'), 'connection.json')
-}
-
-async function loadConfiguration() {
-  try {
-    const saved = JSON.parse(await fs.readFile(configurationFile(), 'utf8'))
-    configuration.url = saved.url
-    if (saved.key && secureStorage()) {
-      configuration.key = safeStorage.decryptString(Buffer.from(saved.key, 'base64'))
-    }
-  } catch (error) {
-    if (error.code !== 'ENOENT') console.error('Unable to read connection settings.')
+function readRecords() {
+  const snapshot = localRecords().read()
+  return {
+    ...snapshot,
+    showLegacyImport: snapshot.revision === 0 && existsSync(path.join(app.getPath('userData'), 'connection.json')),
   }
 }
 
-async function request(connection, change) {
-  if (!connection.url || !connection.key) return { error: 'connectionRequired' }
-  try {
-    const response = await fetch(connection.url + '/v1/records', {
-      method: change ? 'POST' : 'GET',
-      headers: { Authorization: 'Bearer ' + connection.key, 'Content-Type': 'application/json' },
-      body: change ? JSON.stringify(change) : undefined,
-      redirect: 'error',
-      signal: AbortSignal.timeout(12000),
-    })
-    if (response.status === 401) return { error: 'unauthorized' }
-    const data = await response.json()
-    if (!response.ok) return { error: typeof data?.error === 'string' ? data.error : 'connectionFailed' }
-    if (!Number.isSafeInteger(data?.revision) || !Array.isArray(data.balances) || !data.records?.settings ||
-      !['workers', 'groups', 'periods', 'vacations'].every(field => Array.isArray(data.records[field]))) {
-      return { error: 'connectionFailed' }
-    }
-    return data
-  } catch {
-    return { error: 'connectionFailed' }
-  }
+async function importDatabase() {
+  const result = await dialog.showOpenDialog(window, {
+    properties: ['openFile'],
+    filters: [{ name: 'SQLite', extensions: ['sqlite', 'sqlite3', 'db'] }, { name: '*', extensions: ['*'] }],
+  })
+  if (result.canceled) return { canceled: true }
+  return localRecords().importLegacy(result.filePaths[0])
 }
 
-function getConnection() {
-  return { url: configuration.url, hasKey: Boolean(configuration.key), stored: secureStorage() }
-}
-
-async function connect(value) {
-  let address
-  try {
-    address = new URL(value.url.trim())
-  } catch {
-    return { error: 'invalidServer' }
-  }
-  const local = ['localhost', '127.0.0.1', '[::1]'].includes(address.hostname)
-  if ((address.protocol !== 'https:' && !(local && address.protocol === 'http:')) ||
-    address.username || address.password || address.search || address.hash) return { error: 'invalidServer' }
-  const url = address.href.replace(/\/$/, '')
-  const next = { url, key: value.key.trim() || (url === configuration.url ? configuration.key : '') }
-  const data = await request(next)
-  if (data.error) return data
-  const saved = { url: next.url }
-  if (secureStorage()) saved.key = safeStorage.encryptString(next.key).toString('base64')
-  const temporary = configurationFile() + '.tmp'
-  await fs.writeFile(temporary, JSON.stringify(saved), { mode: 0o600 })
-  await fs.rename(temporary, configurationFile())
-  configuration = next
-  return { ...data, connection: getConnection() }
+async function openDataFolder() {
+  if (await shell.openPath(app.getPath('userData'))) return { error: 'dataFolderFailed' }
 }
 
 function firstColumn(parsed) {
@@ -120,21 +77,22 @@ async function checkUpdate() {
   }
 }
 
-function register(channel, handler, failure = 'serverError') {
+function register(channel, handler, failure = 'operationFailed') {
   ipcMain.handle(channel, async (event, ...args) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame) {
       return { error: 'invalidRequest' }
     }
     try {
       return await handler(...args)
-    } catch {
+    } catch (error) {
+      if (error instanceof RecordError) return { error: error.message }
+      console.error(channel, error)
       return { error: failure }
     }
   })
 }
 
 async function launch() {
-  await loadConfiguration()
   window = new BrowserWindow({ width: 1280, height: 860, minWidth: 760, minHeight: 560,
     backgroundColor: '#f2f4f3', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true,
@@ -143,10 +101,10 @@ async function launch() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
-  register('connection:get', getConnection)
-  register('connection:set', connect)
-  register('records:get', () => request(configuration))
-  register('records:change', change => request(configuration, change))
+  register('records:get', readRecords, 'databaseOpenFailed')
+  register('records:change', change => localRecords().change(change), 'databaseSaveFailed')
+  register('records:import', importDatabase, 'databaseSaveFailed')
+  register('records:folder', openDataFolder, 'dataFolderFailed')
   register('workers:file', openWorkers, 'invalidImport')
   register('update:get', () => ({ state: updateState, version: app.getVersion() }))
   register('update:check', checkUpdate)
@@ -163,8 +121,18 @@ async function launch() {
   if (app.isPackaged) void checkUpdate()
 }
 
-app.whenReady().then(launch).catch(error => {
-  console.error(error)
-  app.exit(1)
-})
-app.on('window-all-closed', () => app.quit())
+if (app.requestSingleInstanceLock()) {
+  app.on('second-instance', () => {
+    if (!window || window.isDestroyed()) return
+    if (window.isMinimized()) window.restore()
+    window.focus()
+  })
+  app.on('window-all-closed', () => app.quit())
+  app.on('will-quit', () => records?.close())
+  app.whenReady().then(launch).catch(error => {
+    console.error(error)
+    app.exit(1)
+  })
+} else {
+  app.quit()
+}
