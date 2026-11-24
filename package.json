@@ -1,0 +1,55 @@
+{
+  "name": "rvacation",
+  "version": "0.1.0",
+  "description": "Vacation records and allowances for secretaries",
+  "author": "rVacation contributors",
+  "license": "GPL-3.0-only",
+  "repository": "github:Severnbli/rVacation",
+  "main": "app/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "server": "node server/index.mjs",
+    "test": "node --test test/*.test.mjs",
+    "build": "electron-builder --publish never"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11",
+    "papaparse": "^5.7.1",
+    "read-excel-file": "^9.3.20"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "org.rvacation.desktop",
+    "productName": "rVacation",
+    "files": [
+      "app/**/*",
+      "package.json",
+      "LICENSE"
+    ],
+    "artifactName": "rVacation-${version}-${arch}.${ext}",
+    "publish": {
+      "provider": "github",
+      "owner": "Severnbli",
+      "repo": "rVacation"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Office",
+      "syncDesktopName": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "desktopName": "org.rvacation.desktop.desktop"
+}

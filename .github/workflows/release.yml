@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      series:
+        description: 'New major.minor series. Leave blank to increment the patch.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SERIES: ${{ inputs.series }}
+        run: |
+          set -o pipefail
+          version=$(gh release list --limit 1000 --json tagName,isDraft,isPrerelease | node scripts/next-version.mjs)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            installer: dist/*.AppImage
+            metadata: dist/latest-linux.yml
+          - os: windows-latest
+            installer: dist/*.exe
+            metadata: dist/latest.yml
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm version ${{ needs.version.outputs.version }} --no-git-tag-version --allow-same-version
+      - run: npm run build -- --x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            ${{ matrix.installer }}
+            ${{ matrix.metadata }}
+            dist/*.blockmap
+
+  publish:
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Publish both installers and the shared records service
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          test -f assets/latest.yml
+          test -f assets/latest-linux.yml
+          test -f "assets/rVacation-$VERSION-x64.exe"
+          test -f "assets/rVacation-$VERSION-x86_64.AppImage"
+          git archive --format=tar.gz --prefix="rVacation-service-$VERSION/" -o "assets/rVacation-service-$VERSION.tar.gz" HEAD server README.md AGENTS.md LICENSE docs
+          gh release create "v$VERSION" assets/* --target "$GITHUB_SHA" \
+            --title "rVacation $VERSION" --generate-notes --latest
