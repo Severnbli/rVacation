@@ -76,7 +76,7 @@ const messages = {
   dayCounting: ['Vacation day counting', 'Падлік дзён адпачынку', 'Подсчёт дней отпуска'],
   countingHelp: ['These settings apply to new vacations and records whose dates change.', 'Гэтыя налады дзейнічаюць для новых адпачынкаў і запісаў са змененымі датамі.', 'Эти настройки действуют для новых отпусков и записей с изменёнными датами.'],
   countRule: ['Counting rule', 'Правіла падліку', 'Правило подсчёта'],
-  calendar: ['Calendar days', 'Каляндарныя дні', 'Календарные дни'],
+  calendar: ['Calendar days excluding holidays', 'Каляндарныя дні без святаў', 'Календарные дни без праздников'],
   weekdays: ['Weekdays', 'Буднія дні', 'Будние дни'],
   working: ['Weekdays excluding holidays', 'Буднія дні без святаў', 'Будние дни без праздников'],
   holidays: ['Holiday dates', 'Даты святаў', 'Даты праздников'],

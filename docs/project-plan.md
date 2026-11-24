@@ -19,7 +19,7 @@ rVacation is a desktop app for secretaries to maintain worker records, record va
 
 ## Day counting
 
-- Let the secretary choose the vacation day-counting rule in app settings. Use calendar days by default. Settings also support weekdays and weekdays excluding holiday dates entered by the secretary. Recorded day counts stay fixed unless the vacation dates change.
+- Let the secretary choose the vacation day-counting rule in app settings. By default, count calendar days including weekends and exclude the holiday dates entered by the secretary, even when a holiday falls on a weekend. Settings also support weekdays and weekdays excluding holidays. Recorded day counts stay fixed unless the vacation dates change.
 - Let the secretary mark specific dates as deductible for all workers. A marked date counts only when it falls within the worker's recorded vacation, even if the selected day-counting rule would otherwise exclude it.
 
 ## Localization

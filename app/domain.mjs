@@ -45,23 +45,26 @@ function dateList(values) {
 export function countDays(start, end, settings) {
   const [first, last] = range(start, end)
   const total = (last - first) / DAY + 1
-  if (settings.counting === 'calendar') return total
-
+  const calendar = settings.counting === 'calendar'
   const weekday = value => {
     const day = new Date(value).getUTCDay()
     return day !== 0 && day !== 6
   }
-  let days = Math.floor(total / 7) * 5
-  for (let offset = 0; offset < total % 7; offset++) {
-    days += Number(weekday(first + offset * DAY))
-  }
-  const holidays = new Set(settings.counting === 'working' ? settings.holidays : [])
   const marked = new Set(settings.deductible)
-  for (const day of holidays) {
-    if (day >= start && day <= end && weekday(day) && !marked.has(day)) days--
+  let days = total
+  if (!calendar) {
+    days = Math.floor(total / 7) * 5
+    for (let offset = 0; offset < total % 7; offset++) {
+      days += Number(weekday(first + offset * DAY))
+    }
+    for (const day of marked) {
+      if (day >= start && day <= end && !weekday(day)) days++
+    }
   }
-  for (const day of marked) {
-    if (day >= start && day <= end && !weekday(day)) days++
+  if (settings.counting !== 'weekdays') {
+    for (const day of new Set(settings.holidays)) {
+      if (day >= start && day <= end && !marked.has(day) && (calendar || weekday(day))) days--
+    }
   }
   return days
 }
