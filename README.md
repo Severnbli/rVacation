@@ -8,7 +8,7 @@ rVacation is a Windows and Linux desktop app for tracking worker vacations and b
 2. Run the Windows installer. On Linux, make the AppImage executable before opening it. If your distribution lacks FUSE support, use the AppImage's `--appimage-extract-and-run` option to launch it.
 3. Create a period and add workers from Overview. Groups and day-counting settings can be configured as needed. If you have records in the old shared service, import them before saving anything locally.
 
-The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks the GitHub release feed and offers **Restart and install** in Settings when an update has downloaded.
+The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks GitHub for updates at every launch. When an update is ready, choose **Restart and install** in the popup or select **Later** to keep working and install it from Settings.
 
 ## Back up or move local records
 

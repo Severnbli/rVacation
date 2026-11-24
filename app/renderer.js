@@ -1,5 +1,6 @@
 const main = document.querySelector('#main')
 const dialog = document.querySelector('#editor')
+const updatePrompt = document.querySelector('#update-prompt')
 const nav = document.querySelector('#nav')
 const footer = document.querySelector('#footer')
 const notice = document.querySelector('#notice')
@@ -18,6 +19,7 @@ let sortBy = 'name'
 let search = ''
 let version = ''
 let updateState = 'idle'
+let updatePromptShown = false
 let noticeTimer
 
 const t = key => messages[key]?.[Object.keys(localeNames).indexOf(language)] ?? messages[key]?.[0] ?? key
@@ -251,6 +253,19 @@ function renderUpdate() {
   if (['checking', 'downloading'].includes(updateState)) action.disabled = true
 }
 
+function showUpdatePrompt() {
+  if (updateState !== 'ready' || updatePromptShown || document.querySelector('dialog[open]')) return
+  updatePrompt.innerHTML = `<form class="dialog-content" method="dialog">
+    <h2 id="update-prompt-title">${t('updates')}</h2>
+    <p id="update-prompt-message">${t('ready')}</p>
+    <div class="actions dialog-actions">
+    <button autofocus>${t('updateLater')}</button>
+    ${button('update-install', 'installUpdate', '', 'primary')}
+    </div></form>`
+  updatePrompt.showModal()
+  updatePromptShown = true
+}
+
 function render() {
   document.documentElement.lang = language
   nav.setAttribute('aria-label', t('navigation'))
@@ -432,6 +447,7 @@ function applyFilter(input) {
 }
 
 document.addEventListener('submit', submitForm)
+document.addEventListener('close', showUpdatePrompt, true)
 document.addEventListener('change', event => {
   const source = event.target
   if (source.id === 'language') {
@@ -504,7 +520,12 @@ document.addEventListener('click', async event => {
       break
     }
     case 'update-check': await desktop.checkUpdate(); break
-    case 'update-install': await desktop.installUpdate(); break
+    case 'update-install': {
+      if (updatePrompt.open) updatePrompt.close()
+      const result = await desktop.installUpdate()
+      if (result?.error) toast(result.error)
+      break
+    }
   }
 })
 
@@ -512,11 +533,13 @@ async function initialize() {
   desktop.onUpdate(state => {
     updateState = state
     renderUpdate()
+    showUpdatePrompt()
   })
   const [update] = await Promise.all([desktop.getUpdate(), loadRecords()])
   version = update.version
-  updateState = update.state
+  if (updateState === 'idle') updateState = update.state
   renderUpdate()
+  showUpdatePrompt()
 }
 
 render()

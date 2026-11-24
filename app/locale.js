@@ -95,6 +95,7 @@ const messages = {
   version: ['Installed version', 'Усталяваная версія', 'Установленная версия'],
   checkUpdate: ['Check for updates', 'Праверыць абнаўленні', 'Проверить обновления'],
   installUpdate: ['Restart and install', 'Перазапусціць і ўсталяваць', 'Перезапустить и установить'],
+  updateLater: ['Later', 'Пазней', 'Позже'],
   checking: ['Checking for updates…', 'Праверка абнаўленняў…', 'Проверка обновлений…'],
   downloading: ['Downloading an update…', 'Спампоўванне абнаўлення…', 'Загрузка обновления…'],
   ready: ['An update is ready to install.', 'Абнаўленне гатова да ўсталявання.', 'Обновление готово к установке.'],

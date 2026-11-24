@@ -120,7 +120,7 @@ async function launch() {
   autoUpdater.on('update-downloaded', () => setUpdate('ready'))
   autoUpdater.on('error', () => setUpdate('updateFailed'))
   await window.loadFile(entry)
-  if (app.isPackaged) void checkUpdate()
+  void checkUpdate()
 }
 
 if (app.requestSingleInstanceLock()) {
