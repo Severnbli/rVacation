@@ -10,13 +10,6 @@ rVacation is a Windows and Linux desktop app for tracking worker vacations and b
 
 The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks the GitHub release feed and offers **Restart and install** in Settings when an update has downloaded.
 
-## Move records from the old shared service
-
-1. Make a SQLite backup of `rvacation.sqlite` or the file configured as `RVACATION_DB` on the former service host. If you copy the files directly, stop the service first and keep any matching `-wal` file alongside the database in a writable folder. [SQLite backups](https://sqlite.org/backup.html), [SQLite write-ahead logs](https://www.sqlite.org/wal.html#the_wal_file)
-2. In the desktop app, go to **Settings → Local records → Import old service database** and select the copy. Import is available before the first local save. It brings over workers, groups, periods, vacations, their recorded day counts, and day-counting settings.
-
-Each installation keeps its own records after import. Changes made on one computer stay on that computer.
-
 ## Back up or move local records
 
 Choose **Settings → Local records → Open data folder**, then quit rVacation and copy `rvacation.sqlite` to a backup location. To restore or move your records, open the destination's data folder the same way, quit the app, and place the backup there as `rvacation.sqlite`. Save a copy of the destination database first if it already contains records.
