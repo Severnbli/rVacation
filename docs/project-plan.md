@@ -13,13 +13,14 @@ rVacation is a desktop app for secretaries to maintain worker records, record va
 ## Workers, groups, and periods
 
 - Add workers individually, by pasting spreadsheet rows, or by importing a spreadsheet file. Import uses the first column of CSV, TSV, and XLSX sheets. Workers can share a name. Sort and filter the worker list by group. A worker can belong to several groups.
+- Mark former workers as fired from Workers. Hide them and their vacations from normal views, totals, and selectors. Recovering a worker restores their visibility with their vacation history, groups, and allowance.
 - Create named vacation entitlement periods such as `25/26` and `26/27`. These labels identify the allowance a vacation is charged against. A vacation record needs a worker, its dates, and its charged period. Suggest the period containing the vacation start date and let the secretary override it. Periods cannot overlap. Each vacation is charged to one period.
 - Set a maximum number of vacation days for individual workers and for groups. A personal limit takes precedence when set. Otherwise, enforce every configured limit on the worker's groups against that worker's vacation total for the period. For example, membership in groups with limits of 24 and 30 days means the worker can use up to 24 days in that period. A personal limit of 28 days would make 28 days the applicable maximum.
 - Show days used, the applicable limit, and days remaining by worker and period. Show whether a personal or group rule controls each balance. No configured limit means unlimited. Block new entries that would exceed a limit. Changes to a worker or group limit can surface an overage on an existing balance.
 
 ## Day counting
 
-- Let the secretary choose the vacation day-counting rule in app settings. Use calendar days by default. Settings also support weekdays and weekdays excluding holiday dates entered by the secretary. Recorded day counts stay fixed unless the vacation dates change.
+- Let the secretary choose the vacation day-counting rule in app settings. By default, count calendar days including weekends and exclude the holiday dates entered by the secretary, even when a holiday falls on a weekend. Settings also support weekdays and weekdays excluding holidays. Recorded day counts stay fixed unless the vacation dates change.
 - Let the secretary mark specific dates as deductible for all workers. A marked date counts only when it falls within the worker's recorded vacation, even if the selected day-counting rule would otherwise exclude it.
 
 ## Localization
@@ -29,7 +30,7 @@ Ship English (`en`), Belarusian (`be`), and Russian (`ru`) from the first releas
 ## GitHub CI and releases
 
 - Develop features on `dev` and merge into `main` through a pull request. GitHub Actions tests and packages both platforms on changes to `dev` and on pull requests into `main`.
-- The manual Release workflow publishes the Windows NSIS installer, Linux AppImage, and updater metadata through GitHub Releases from `main`. The desktop app checks for updates at launch and offers to restart once the update has downloaded. Desktop updates retain the local database.
+- The manual Release workflow publishes the Windows NSIS installer, Linux AppImage, and updater metadata through GitHub Releases from `main`. The desktop app checks for updates at every launch and shows a popup once an update has downloaded. Users can restart and install from the popup or defer installation and return to Settings later. Desktop updates retain the local database.
 - Give the release workflow an optional `major.minor` input. With no input, increment the patch of the latest published version. With a newer major or minor selection, release the selected `major.minor` at patch `0`.
 
 | Latest version | `major.minor` input | Next version |

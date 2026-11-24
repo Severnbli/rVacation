@@ -7,8 +7,16 @@ test('counts inclusive dates, holidays, and shared deductible dates once within 
     deductible: ['2026-05-01', '2026-05-03', '2026-05-18'] }
   assert.equal(countDays('2026-04-30', '2026-05-11', settings), 8)
   assert.equal(countDays('2026-04-30', '2026-05-11', { ...settings, counting: 'weekdays' }), 9)
-  assert.equal(countDays('2026-04-30', '2026-05-11', { ...settings, counting: 'calendar' }), 12)
+  assert.equal(countDays('2026-04-30', '2026-05-11', { ...settings, counting: 'calendar' }), 11)
   assert.throws(() => countDays('2026-02-29', '2026-03-01', settings), /invalidDate/)
+})
+
+test('calendar days include ordinary weekends and skip holidays even on weekends', () => {
+  const settings = { counting: 'calendar', holidays: ['2026-05-03'], deductible: [] }
+  assert.equal(countDays('2026-05-02', '2026-05-03', settings), 1)
+  assert.equal(countDays('2026-05-03', '2026-05-03', settings), 0)
+  assert.equal(countDays('2026-05-02', '2026-05-03', { ...settings, deductible: ['2026-05-03'] }), 2)
+  assert.equal(countDays('2026-05-02', '2026-05-03', { ...settings, counting: 'working' }), 0)
 })
 
 test('enforces every group limit until a personal limit is set', () => {

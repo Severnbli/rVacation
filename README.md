@@ -8,14 +8,7 @@ rVacation is a Windows and Linux desktop app for tracking worker vacations and b
 2. Run the Windows installer. On Linux, make the AppImage executable before opening it. If your distribution lacks FUSE support, use the AppImage's `--appimage-extract-and-run` option to launch it.
 3. Create a period and add workers from Overview. Groups and day-counting settings can be configured as needed. If you have records in the old shared service, import them before saving anything locally.
 
-The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks the GitHub release feed and offers **Restart and install** in Settings when an update has downloaded.
-
-## Move records from the old shared service
-
-1. Make a SQLite backup of `rvacation.sqlite` or the file configured as `RVACATION_DB` on the former service host. If you copy the files directly, stop the service first and keep any matching `-wal` file alongside the database in a writable folder. [SQLite backups](https://sqlite.org/backup.html), [SQLite write-ahead logs](https://www.sqlite.org/wal.html#the_wal_file)
-2. In the desktop app, go to **Settings → Local records → Import old service database** and select the copy. Import is available before the first local save. It brings over workers, groups, periods, vacations, their recorded day counts, and day-counting settings.
-
-Each installation keeps its own records after import. Changes made on one computer stay on that computer.
+The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks GitHub for updates at every launch. When an update is ready, choose **Restart and install** in the popup or select **Later** to keep working and install it from Settings.
 
 ## Back up or move local records
 

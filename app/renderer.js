@@ -1,5 +1,6 @@
 const main = document.querySelector('#main')
 const dialog = document.querySelector('#editor')
+const updatePrompt = document.querySelector('#update-prompt')
 const nav = document.querySelector('#nav')
 const footer = document.querySelector('#footer')
 const notice = document.querySelector('#notice')
@@ -18,11 +19,12 @@ let sortBy = 'name'
 let search = ''
 let version = ''
 let updateState = 'idle'
+let updatePromptShown = false
 let noticeTimer
 
 const t = key => messages[key]?.[Object.keys(localeNames).indexOf(language)] ?? messages[key]?.[0] ?? key
 const number = value => new Intl.NumberFormat(language).format(value)
-const displayDate = value => new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value))
+const displayDate = value => dateFormatter(language, 'medium')(new Date(value))
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character])
@@ -106,7 +108,8 @@ function workerRows(records, overview) {
       <td class="number" title="${escape(rule)}">${max === null ? t('unlimited') : number(max)}
       ${rule ? `<br><small>${escape(rule)}</small>` : ''}</td>
       ${overview ? `<td class="number ${max !== null && used > max ? 'over' : ''}">${periodId ? remaining : t('none')}</td>` : ''}
-      <td>${overview ? button('vacation-for', 'recordShort', worker.id, 'small') : button('edit-worker', 'edit', worker.id, 'small')}</td></tr>`
+      <td><div class="actions">${overview ? button('vacation-for', 'recordShort', worker.id, 'small') :
+        button('edit-worker', 'edit', worker.id, 'small') + button('fire-worker', 'markFired', worker.id, 'small danger')}</div></td></tr>`
   })
 }
 
@@ -133,7 +136,8 @@ function workerResults(records, overviewMode) {
 }
 
 function workers(records) {
-  return heading('workers', button('import', 'bulkAdd') + button('new-worker', 'addWorker', '', 'primary')) +
+  const recover = snapshot.firedWorkers.length ? button('recover-workers', 'recoverWorkers') : ''
+  return heading('workers', recover + button('import', 'bulkAdd') + button('new-worker', 'addWorker', '', 'primary')) +
     `<section class="panel"><div class="panel-top">${filters(records, false)}</div>
       <div id="worker-results">${workerResults(records, false)}</div></section>`
 }
@@ -172,6 +176,51 @@ function recordsStatus() {
     <div class="actions">${button('retry-records', 'retry')}</div>`
 }
 
+function settingsDates(name, dates) {
+  return `<div class="date-field" data-date-field="${name}" role="group" aria-labelledby="${name}-label">
+    <span id="${name}-label" class="date-field-label">${t(name)}</span>
+    <div class="actions"><button type="button" data-action="choose-dates" aria-haspopup="dialog"
+      aria-describedby="${name}-label">${t('chooseDates')}</button></div>
+    ${dates.length ? `<ul class="date-list">${dates.map(date => {
+      const label = displayDate(date)
+      return `<li><input type="hidden" name="${name}" value="${escape(date)}">
+        <button type="button" class="small date-chip" data-action="remove-date"
+          aria-label="${escape(t('removeDate').replace('{date}', label))}">${escape(label)} <span aria-hidden="true">×</span></button></li>`
+    }).join('')}</ul>` : `<p>${t('noDates')}</p>`}
+    </div>`
+}
+
+function chooseSettingsDates(target) {
+  const form = target.form
+  if (form.dataset.saving) return
+  const field = target.closest('[data-date-field]')
+  const name = field.dataset.dateField
+  const dates = new FormData(form).getAll(name)
+  openDatePicker({
+    title: t(name), dates, language, t, today: today(),
+    onApply: selected => {
+      field.outerHTML = settingsDates(name, selected)
+      form.querySelector(`[data-date-field="${name}"] [data-action="choose-dates"]`).focus()
+    },
+  })
+}
+
+function removeSettingsDate(target) {
+  if (target.form.dataset.saving) return
+  const item = target.closest('li')
+  const adjacent = item.nextElementSibling ?? item.previousElementSibling
+  if (adjacent) {
+    item.remove()
+    adjacent.querySelector('button').focus()
+  } else {
+    const form = target.form
+    const field = target.closest('[data-date-field]')
+    const name = field.dataset.dateField
+    field.outerHTML = settingsDates(name, [])
+    form.querySelector(`[data-date-field="${name}"] [data-action="choose-dates"]`).focus()
+  }
+}
+
 function settings() {
   const current = snapshot?.records.settings
   return heading('settings') + `
@@ -185,11 +234,14 @@ function settings() {
     ${current ? `<section class="panel"><form class="panel-body" data-form="settings">
     <h2>${t('dayCounting')}</h2><p>${t('countingHelp')}</p>
     <label>${t('countRule')}<select name="counting">${options(['calendar', 'weekdays', 'working'].map(id => ({ id, name: t(id) })), current.counting)}</select></label>
-    ${textarea('holidays', 'holidays', current.holidays.join('\n'), 'dateHelp')}
-    ${textarea('deductible', 'deductible', current.deductible.join('\n'), 'dateHelp')}
+    ${settingsDates('holidays', current.holidays)}
+    ${settingsDates('deductible', current.deductible)}
     <div class="actions"><button class="primary">${t('save')}</button></div>
     <p class="error" role="alert"></p></form></section>` : ''}
-    <section class="panel"><div class="panel-body" id="update-panel"></div></section>`
+    <section class="panel"><div class="panel-body">
+    <div id="update-panel"></div>
+    <div><a class="repository-link" data-action="open-repository" href="https://github.com/Severnbli/rVacation">${t('githubRepository')}</a></div>
+    </div></section>`
 }
 
 function renderUpdate() {
@@ -201,6 +253,19 @@ function renderUpdate() {
     </div>`
   const action = panel.querySelector('button')
   if (['checking', 'downloading'].includes(updateState)) action.disabled = true
+}
+
+function showUpdatePrompt() {
+  if (updateState !== 'ready' || updatePromptShown || document.querySelector('dialog[open]')) return
+  updatePrompt.innerHTML = `<form class="dialog-content" method="dialog">
+    <h2 id="update-prompt-title">${t('updates')}</h2>
+    <p id="update-prompt-message">${t('ready')}</p>
+    <div class="actions dialog-actions">
+    <button autofocus>${t('updateLater')}</button>
+    ${button('update-install', 'installUpdate', '', 'primary')}
+    </div></form>`
+  updatePrompt.showModal()
+  updatePromptShown = true
 }
 
 function render() {
@@ -220,7 +285,14 @@ function render() {
 }
 
 function setSnapshot(result) {
-  snapshot = result
+  const workers = result.records.workers.filter(worker => worker.fired !== true)
+  const activeIds = new Set(workers.map(worker => worker.id))
+  snapshot = {
+    ...result,
+    firedWorkers: result.records.workers.filter(worker => worker.fired === true),
+    records: { ...result.records, workers, vacations: result.records.vacations.filter(item => activeIds.has(item.workerId)) },
+    balances: result.balances.filter(balance => activeIds.has(balance.id)),
+  }
   const periods = result.records.periods
   if (!periods.some(item => item.id === periodId)) {
     const date = today()
@@ -272,20 +344,63 @@ function groupPicker(selected = []) {
 function editor(type, title, content, id = '', submit = 'save') {
   dialog.innerHTML = `<form class="dialog-content" data-form="${type}" data-id="${escape(id)}">
     <h2 id="editor-title">${t(title)}</h2>${content}<p class="error" role="alert"></p>
-    <div class="actions dialog-actions">${button('close', 'cancel')}<button class="${submit === 'delete' ? 'danger' : 'primary'}">${t(submit)}</button></div></form>`
+    <div class="actions dialog-actions">${button('close', 'cancel')}<button class="${['delete', 'markFired'].includes(submit) ? 'danger' : 'primary'}">${t(submit)}</button></div></form>`
   dialog.setAttribute('aria-labelledby', 'editor-title')
   if (!dialog.open) dialog.showModal()
 }
 
 const limitInput = value => field('limit', 'limit', value ?? '', 'number', 'min="0" step="1"')
 const nameInput = value => field('name', 'name', value, 'text', 'required maxlength="160" autofocus')
-const datePair = item => `<div class="pair">${field('start', 'start', item.start, 'date', 'required')}
-  ${field('end', 'end', item.end, 'date', 'required')}</div>`
+
+function dateRange({ start = '', end = '' }) {
+  const startText = start ? displayDate(start) : t('none')
+  const endText = end ? displayDate(end) : t('none')
+  const label = `${t('dateRange')}. ${t('start')} ${startText}. ${t('end')} ${endText}`
+  return `<div class="range-field">
+    <input type="hidden" name="start" value="${escape(start)}">
+    <input type="hidden" name="end" value="${escape(end)}">
+    <button type="button" class="range-trigger" data-action="record-dates" aria-haspopup="dialog" aria-label="${escape(label)}">
+      <span class="range-icon" aria-hidden="true"></span>
+      <span><small>${t('start')}</small><strong>${escape(startText)}</strong></span>
+      <span><small>${t('end')}</small><strong>${escape(endText)}</strong></span>
+    </button>
+    </div>`
+}
+
+function chooseRecordDates(target) {
+  const form = target.form
+  if (form.dataset.saving) return
+  const dates = [form.elements.start.value, form.elements.end.value].filter(Boolean)
+  openDatePicker({
+    title: t('dateRange'), dates, language, t, today: today(), singleRange: true,
+    onApply: ([start, end]) => {
+      target.closest('.range-field').outerHTML = dateRange({ start, end })
+      if (form.dataset.form === 'vacation') suggestPeriod(form)
+      setFormError(form, '')
+      form.querySelector('[data-action="record-dates"]').focus()
+    },
+  })
+}
 
 function workerEdit(id) {
   const item = snapshot.records.workers.find(item => item.id === id) ?? {}
   editor('worker', id ? 'editWorker' : 'addWorker',
     nameInput(item.name) + limitInput(item.limit) + `<small>${t('personalHelp')}</small>` + groupPicker(item.groups), id)
+}
+
+function fireWorker(id) {
+  const worker = snapshot.records.workers.find(item => item.id === id)
+  if (!worker) return toast('recordMissing')
+  editor('fireWorker', 'markFired', `<strong>${escape(worker.name)}</strong><p>${t('fireWorkerHelp')}</p>`, id, 'markFired')
+}
+
+function recoverWorkers() {
+  const workers = snapshot.firedWorkers.slice().sort((a, b) => a.name.localeCompare(b.name, language)).map(worker => {
+    const groups = groupNames(worker, snapshot.records.groups).join(', ')
+    return { ...worker, name: groups ? `${worker.name} (${groups})` : worker.name }
+  })
+  editor('recoverWorker', 'recoverWorkers',
+    `<label>${t('worker')}<select name="workerId" required>${options(workers, '', 'chooseWorker')}</select></label>`, '', 'recoverWorker')
 }
 
 function groupEdit(id) {
@@ -295,7 +410,7 @@ function groupEdit(id) {
 
 function periodEdit(id) {
   const item = snapshot.records.periods.find(item => item.id === id) ?? {}
-  editor('period', id ? 'editPeriod' : 'addPeriod', nameInput(item.name) + datePair(item), id)
+  editor('period', id ? 'editPeriod' : 'addPeriod', nameInput(item.name) + dateRange(item), id)
 }
 
 function suggestPeriod(form) {
@@ -311,7 +426,7 @@ function vacationEdit(id, workerId) {
   const item = records.vacations.find(item => item.id === id)
   editor('vacation', item ? 'editVacation' : 'recordVacation',
     `<label>${t('worker')}<select name="workerId" required>${options(records.workers.slice().sort((a, b) => a.name.localeCompare(b.name, language)), item?.workerId ?? workerId, 'chooseWorker')}</select></label>
-    ${datePair(item ?? { start: today(), end: today() })}
+    ${dateRange(item ?? { start: today(), end: today() })}
     <label>${t('period')}<select name="periodId" required>${options(records.periods, item?.periodId, 'choosePeriod')}</select></label>
     <small>${t('periodHelp')}</small>`, id)
   if (!item) suggestPeriod(dialog.querySelector('form'))
@@ -329,10 +444,6 @@ function setFormError(form, error) {
   form.querySelector('.error').textContent = t(error)
 }
 
-function splitDates(input) {
-  return input.split(/[\s,;]+/).filter(Boolean)
-}
-
 async function submitForm(event) {
   const form = event.target
   const type = form.dataset.form
@@ -346,18 +457,24 @@ async function submitForm(event) {
   try {
     const data = new FormData(form)
     const value = Object.fromEntries(data)
+    if ((type === 'period' || type === 'vacation') && (!value.start || !value.end)) {
+      setFormError(form, 'selectRangeStart')
+      form.querySelector('[data-action="record-dates"]').focus()
+      return
+    }
     if (type === 'worker' || type === 'import') value.groups = data.getAll('groups')
     if (type === 'worker' || type === 'group') value.limit = value.limit === '' ? null : Number(value.limit)
     if (type === 'settings') {
-      value.holidays = splitDates(value.holidays)
-      value.deductible = splitDates(value.deductible)
+      value.holidays = data.getAll('holidays')
+      value.deductible = data.getAll('deductible')
     }
     if (type === 'import') {
       value.limit = null
       value.names = value.names.split(/\r?\n/).map(line => line.split('\t', 1)[0].trim()).filter(Boolean)
       if (value.header) value.names.shift()
     }
-    const result = await desktop.change({ revision: snapshot.revision, change: { type, id: form.dataset.id || undefined, value } })
+    const id = type === 'recoverWorker' ? value.workerId : form.dataset.id || undefined
+    const result = await desktop.change({ revision: snapshot.revision, change: { type, id, value } })
     if (result.error === 'conflict') {
       const latest = await desktop.getRecords()
       if (!latest.error) setSnapshot(latest)
@@ -388,6 +505,7 @@ function applyFilter(input) {
 }
 
 document.addEventListener('submit', submitForm)
+document.addEventListener('close', showUpdatePrompt, true)
 document.addEventListener('change', event => {
   const source = event.target
   if (source.id === 'language') {
@@ -399,10 +517,7 @@ document.addEventListener('change', event => {
   }
   if (source.dataset.filter && source.dataset.filter !== 'search') applyFilter(source)
   const form = source.form
-  if (form?.dataset.form === 'vacation') {
-    if (source.name === 'periodId') form.dataset.periodManual = 'yes'
-    if (source.name === 'start') suggestPeriod(form)
-  }
+  if (form?.dataset.form === 'vacation' && source.name === 'periodId') form.dataset.periodManual = 'yes'
 })
 document.addEventListener('input', event => {
   if (event.target.dataset.filter === 'search') applyFilter(event.target)
@@ -437,6 +552,8 @@ document.addEventListener('click', async event => {
       break
     }
     case 'new-worker': case 'edit-worker': workerEdit(id); break
+    case 'fire-worker': fireWorker(id); break
+    case 'recover-workers': recoverWorkers(); break
     case 'new-group': case 'edit-group': groupEdit(id); break
     case 'new-period': case 'edit-period': periodEdit(id); break
     case 'new-vacation': case 'edit-vacation': vacationEdit(id); break
@@ -451,8 +568,22 @@ document.addEventListener('click', async event => {
       break
     }
     case 'close': if (!target.form.dataset.saving) dialog.close(); break
+    case 'choose-dates': chooseSettingsDates(target); break
+    case 'record-dates': chooseRecordDates(target); break
+    case 'remove-date': removeSettingsDate(target); break
+    case 'open-repository': {
+      event.preventDefault()
+      const result = await desktop.openRepository()
+      if (result?.error) toast(result.error)
+      break
+    }
     case 'update-check': await desktop.checkUpdate(); break
-    case 'update-install': await desktop.installUpdate(); break
+    case 'update-install': {
+      if (updatePrompt.open) updatePrompt.close()
+      const result = await desktop.installUpdate()
+      if (result?.error) toast(result.error)
+      break
+    }
   }
 })
 
@@ -460,11 +591,13 @@ async function initialize() {
   desktop.onUpdate(state => {
     updateState = state
     renderUpdate()
+    showUpdatePrompt()
   })
   const [update] = await Promise.all([desktop.getUpdate(), loadRecords()])
   version = update.version
-  updateState = update.state
+  if (updateState === 'idle') updateState = update.state
   renderUpdate()
+  showUpdatePrompt()
 }
 
 render()

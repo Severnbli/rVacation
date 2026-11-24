@@ -45,23 +45,26 @@ function dateList(values) {
 export function countDays(start, end, settings) {
   const [first, last] = range(start, end)
   const total = (last - first) / DAY + 1
-  if (settings.counting === 'calendar') return total
-
+  const calendar = settings.counting === 'calendar'
   const weekday = value => {
     const day = new Date(value).getUTCDay()
     return day !== 0 && day !== 6
   }
-  let days = Math.floor(total / 7) * 5
-  for (let offset = 0; offset < total % 7; offset++) {
-    days += Number(weekday(first + offset * DAY))
-  }
-  const holidays = new Set(settings.counting === 'working' ? settings.holidays : [])
   const marked = new Set(settings.deductible)
-  for (const day of holidays) {
-    if (day >= start && day <= end && weekday(day) && !marked.has(day)) days--
+  let days = total
+  if (!calendar) {
+    days = Math.floor(total / 7) * 5
+    for (let offset = 0; offset < total % 7; offset++) {
+      days += Number(weekday(first + offset * DAY))
+    }
+    for (const day of marked) {
+      if (day >= start && day <= end && !weekday(day)) days++
+    }
   }
-  for (const day of marked) {
-    if (day >= start && day <= end && !weekday(day)) days++
+  if (settings.counting !== 'weekdays') {
+    for (const day of new Set(settings.holidays)) {
+      if (day >= start && day <= end && !marked.has(day) && (calendar || weekday(day))) days--
+    }
   }
   return days
 }
@@ -93,6 +96,12 @@ function existing(items, id) {
   return item
 }
 
+function activeWorker(records, id) {
+  const worker = existing(records.workers, id)
+  requireThat(worker.fired !== true, 'recordMissing')
+  return worker
+}
+
 function save(items, id, details) {
   if (id) Object.assign(existing(items, id), details)
   else items.push({ id: randomUUID(), ...details })
@@ -115,8 +124,15 @@ export function applyChange(records, change) {
   requireThat(type === 'deleteVacation' || (value && typeof value === 'object'), 'invalidRequest')
 
   switch (type) {
-    case 'worker':
-      save(records.workers, id, workerDetails(records, value))
+    case 'worker': {
+      const details = workerDetails(records, value)
+      if (id) Object.assign(activeWorker(records, id), details)
+      else save(records.workers, null, details)
+      break
+    }
+    case 'fireWorker':
+    case 'recoverWorker':
+      existing(records.workers, id).fired = type === 'fireWorker'
       break
     case 'import': {
       requireThat(Array.isArray(value.names) && value.names.length > 0 && value.names.length <= 5000, 'invalidImport')
@@ -140,9 +156,10 @@ export function applyChange(records, change) {
       break
     }
     case 'vacation': {
-      const worker = existing(records.workers, value.workerId)
+      const worker = activeWorker(records, value.workerId)
       existing(records.periods, value.periodId)
       const previous = id ? existing(records.vacations, id) : null
+      if (previous && previous.workerId !== worker.id) activeWorker(records, previous.workerId)
       const sameDates = previous?.start === value.start && previous?.end === value.end
       const days = sameDates ? previous.days : countDays(value.start, value.end, records.settings)
       const others = records.vacations.filter(vacation => vacation.workerId === worker.id && vacation.id !== id)
@@ -157,7 +174,7 @@ export function applyChange(records, change) {
       break
     }
     case 'deleteVacation':
-      existing(records.vacations, id)
+      activeWorker(records, existing(records.vacations, id).workerId)
       records.vacations = records.vacations.filter(vacation => vacation.id !== id)
       break
     case 'settings':

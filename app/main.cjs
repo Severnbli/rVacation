@@ -12,6 +12,7 @@ let window
 let records
 let updateState = 'idle'
 const entry = path.join(__dirname, 'index.html')
+const repositoryUrl = 'https://github.com/Severnbli/rVacation'
 
 function localRecords() {
   return records ??= openRecords(path.join(app.getPath('userData'), 'rvacation.sqlite'))
@@ -106,6 +107,7 @@ async function launch() {
   register('records:import', importDatabase, 'databaseSaveFailed')
   register('records:folder', openDataFolder, 'dataFolderFailed')
   register('workers:file', openWorkers, 'invalidImport')
+  register('app:repository', () => shell.openExternal(repositoryUrl))
   register('update:get', () => ({ state: updateState, version: app.getVersion() }))
   register('update:check', checkUpdate)
   register('update:install', () => {
@@ -118,7 +120,7 @@ async function launch() {
   autoUpdater.on('update-downloaded', () => setUpdate('ready'))
   autoUpdater.on('error', () => setUpdate('updateFailed'))
   await window.loadFile(entry)
-  if (app.isPackaged) void checkUpdate()
+  void checkUpdate()
 }
 
 if (app.requestSingleInstanceLock()) {
