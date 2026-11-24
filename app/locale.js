@@ -81,7 +81,16 @@ const messages = {
   working: ['Weekdays excluding holidays', 'Буднія дні без святаў', 'Будние дни без праздников'],
   holidays: ['Holiday dates', 'Даты святаў', 'Даты праздников'],
   deductible: ['Dates that always count within vacation', 'Даты, якія заўсёды залічваюцца падчас адпачынку', 'Даты, которые всегда засчитываются в отпуске'],
-  dateHelp: ['Enter one date per line in YYYY-MM-DD format.', 'Уводзьце па адной даце на радок у фармаце ГГГГ-ММ-ДД.', 'Вводите по одной дате на строку в формате ГГГГ-ММ-ДД.'],
+  chooseDates: ['Choose dates', 'Выбраць даты', 'Выбрать даты'],
+  noDates: ['No dates selected', 'Даты не выбраны', 'Даты не выбраны'],
+  removeDate: ['Remove {date}', 'Выдаліць дату {date}', 'Удалить дату {date}'],
+  previousMonth: ['Previous month', 'Папярэдні месяц', 'Предыдущий месяц'],
+  nextMonth: ['Next month', 'Наступны месяц', 'Следующий месяц'],
+  selectDateRange: ['Select a range', 'Выбраць дыяпазон дат', 'Выбрать диапазон дат'],
+  selectRangeStart: ['Choose the first day of the range.', 'Выберыце першы дзень дыяпазону.', 'Выберите первый день диапазона.'],
+  selectRangeEnd: ['Choose the last day of the range.', 'Выберыце апошні дзень дыяпазону.', 'Выберите последний день диапазона.'],
+  selectedDates: ['Selected dates', 'Выбраныя даты', 'Выбранные даты'],
+  applyDates: ['Apply dates', 'Ужыць даты', 'Применить даты'],
   updates: ['App updates', 'Абнаўленні праграмы', 'Обновления приложения'],
   version: ['Installed version', 'Усталяваная версія', 'Установленная версия'],
   checkUpdate: ['Check for updates', 'Праверыць абнаўленні', 'Проверить обновления'],
@@ -92,6 +101,7 @@ const messages = {
   upToDate: ['You have the latest version.', 'Усталяваная апошняя версія.', 'Установлена последняя версия.'],
   updateUnavailable: ['Updates require an installed Windows build or a Linux AppImage.', 'Для абнаўленняў патрэбная ўсталяваная версія для Windows або Linux AppImage.', 'Для обновлений нужна установленная версия для Windows или Linux AppImage.'],
   updateFailed: ['Unable to check for or download updates.', 'Не ўдалося праверыць або спампаваць абнаўленні.', 'Не удалось проверить или загрузить обновления.'],
+  githubRepository: ['rVacation on GitHub', 'rVacation на GitHub', 'rVacation на GitHub'],
   loadingRecords: ['Opening local records…', 'Адкрыццё лакальных запісаў…', 'Открытие локальных записей…'],
   retry: ['Try again', 'Паспрабаваць яшчэ раз', 'Повторить попытку'],
   databaseOpenFailed: ['Unable to open the local database. Check that the data folder is writable and try again.', 'Не ўдалося адкрыць лакальную базу. Праверце, ці даступная папка з данымі для запісу, і паспрабуйце яшчэ раз.', 'Не удалось открыть локальную базу. Проверьте, доступна ли папка с данными для записи, и повторите попытку.'],
@@ -113,4 +123,33 @@ const messages = {
   allowanceExceeded: ['This vacation would exceed the worker’s day limit for the selected period.', 'Гэты адпачынак перавысіць ліміт дзён супрацоўніка за абраны перыяд.', 'Этот отпуск превысит лимит дней сотрудника за выбранный период.'],
   recordMissing: ['A selected record is no longer available. Reopen the form and try again.', 'Абраны запіс больш недаступны. Адкрыйце форму зноў і паспрабуйце яшчэ раз.', 'Выбранная запись больше недоступна. Откройте форму заново и повторите попытку.'],
   invalidImport: ['Use a readable spreadsheet or up to 5,000 names at a time.', 'Выкарыстоўвайце даступны файл табліцы або да 5 000 імёнаў за раз.', 'Используйте читаемый файл таблицы или до 5 000 имён за раз.'],
+}
+
+const dateFormats = {
+  weekday: { weekday: 'short' },
+  month: { month: 'long', year: 'numeric' },
+  medium: { dateStyle: 'medium' },
+  full: { dateStyle: 'full' },
+}
+
+function dateFormatter(language, style) {
+  if (language !== 'be' || Intl.DateTimeFormat.supportedLocalesOf('be').length) {
+    const formatter = new Intl.DateTimeFormat(language, { ...dateFormats[style], timeZone: 'UTC' })
+    return date => formatter.format(date)
+  }
+
+  // Some Electron builds omit Belarusian date formats from their ICU data.
+  const weekdays = ['нядзеля', 'панядзелак', 'аўторак', 'серада', 'чацвер', 'пятніца', 'субота']
+  const shortWeekdays = ['нд', 'пн', 'аў', 'ср', 'чц', 'пт', 'сб']
+  const months = ['студзень', 'люты', 'сакавік', 'красавік', 'май', 'чэрвень', 'ліпень', 'жнівень', 'верасень', 'кастрычнік', 'лістапад', 'снежань']
+  const dateMonths = ['студзеня', 'лютага', 'сакавіка', 'красавіка', 'мая', 'чэрвеня', 'ліпеня', 'жніўня', 'верасня', 'кастрычніка', 'лістапада', 'снежня']
+  return date => {
+    const month = date.getUTCMonth()
+    const year = date.getUTCFullYear()
+    if (style === 'weekday') return shortWeekdays[date.getUTCDay()]
+    if (style === 'month') return `${months[month]} ${year}`
+    const day = date.getUTCDate()
+    if (style === 'full') return `${weekdays[date.getUTCDay()]}, ${day} ${dateMonths[month]} ${year} г.`
+    return `${day} ${dateMonths[month].slice(0, 3)} ${year} г.`
+  }
 }

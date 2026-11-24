@@ -72,6 +72,24 @@ legend { padding: 0 5px; }
 .check { display: flex; align-items: start; gap: 7px; font-weight: normal; }
 .check input { min-height: auto; width: auto; margin-top: 4px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.date-field { display: grid; gap: 8px; min-width: 0; }
+.date-field-label { font-weight: 600; }
+.date-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 4px; max-height: 128px; overflow-y: auto; }
+.date-chip { display: flex; align-items: center; gap: 9px; color: #285848; background: #eaf2ee; }
+.date-chip span { font-size: 1.1em; }
+#update-panel { display: grid; gap: 14px; }
+.repository-link { color: var(--primary); text-underline-offset: 3px; }
+#date-picker { width: min(420px, 94vw); }
+.calendar-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: center; }
+.calendar-header button { font-size: 1.4rem; line-height: 1; min-width: 39px; padding: 5px; }
+.calendar { table-layout: fixed; text-align: center; }
+.calendar th, .calendar td, .calendar :is(th, td):first-child { padding: 2px; border: 0; }
+.calendar th { background: transparent; }
+.calendar td button { width: 100%; min-height: 34px; padding: 3px; border-color: transparent; }
+.calendar td button[aria-current="date"] { border-color: var(--primary); }
+.calendar td button[aria-pressed="true"] { background: var(--primary); color: white; }
+.calendar td button.calendar-range-start { box-shadow: inset 0 0 0 2px #378567; border-color: #92dfbf; }
+.calendar-options { display: grid; gap: 5px; }
 #notice:empty { display: none; }
 #notice { position: fixed; width: max-content; max-width: 70vw; right: 25px; bottom: 24px; background: #122e27; color: white; border-radius: 8px; padding: 11px 15px; box-shadow: 0 4px 15px #18312b40; }
 @media (max-width: 1000px) {

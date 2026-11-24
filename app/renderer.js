@@ -22,7 +22,7 @@ let noticeTimer
 
 const t = key => messages[key]?.[Object.keys(localeNames).indexOf(language)] ?? messages[key]?.[0] ?? key
 const number = value => new Intl.NumberFormat(language).format(value)
-const displayDate = value => new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value))
+const displayDate = value => dateFormatter(language, 'medium')(new Date(value))
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character])
@@ -172,6 +172,51 @@ function recordsStatus() {
     <div class="actions">${button('retry-records', 'retry')}</div>`
 }
 
+function settingsDates(name, dates) {
+  return `<div class="date-field" data-date-field="${name}" role="group" aria-labelledby="${name}-label">
+    <span id="${name}-label" class="date-field-label">${t(name)}</span>
+    <div class="actions"><button type="button" data-action="choose-dates" aria-haspopup="dialog"
+      aria-describedby="${name}-label">${t('chooseDates')}</button></div>
+    ${dates.length ? `<ul class="date-list">${dates.map(date => {
+      const label = displayDate(date)
+      return `<li><input type="hidden" name="${name}" value="${escape(date)}">
+        <button type="button" class="small date-chip" data-action="remove-date"
+          aria-label="${escape(t('removeDate').replace('{date}', label))}">${escape(label)} <span aria-hidden="true">×</span></button></li>`
+    }).join('')}</ul>` : `<p>${t('noDates')}</p>`}
+    </div>`
+}
+
+function chooseSettingsDates(target) {
+  const form = target.form
+  if (form.dataset.saving) return
+  const field = target.closest('[data-date-field]')
+  const name = field.dataset.dateField
+  const dates = new FormData(form).getAll(name)
+  openDatePicker({
+    title: t(name), dates, language, t, today: today(),
+    onApply: selected => {
+      field.outerHTML = settingsDates(name, selected)
+      form.querySelector(`[data-date-field="${name}"] [data-action="choose-dates"]`).focus()
+    },
+  })
+}
+
+function removeSettingsDate(target) {
+  if (target.form.dataset.saving) return
+  const item = target.closest('li')
+  const adjacent = item.nextElementSibling ?? item.previousElementSibling
+  if (adjacent) {
+    item.remove()
+    adjacent.querySelector('button').focus()
+  } else {
+    const form = target.form
+    const field = target.closest('[data-date-field]')
+    const name = field.dataset.dateField
+    field.outerHTML = settingsDates(name, [])
+    form.querySelector(`[data-date-field="${name}"] [data-action="choose-dates"]`).focus()
+  }
+}
+
 function settings() {
   const current = snapshot?.records.settings
   return heading('settings') + `
@@ -185,11 +230,14 @@ function settings() {
     ${current ? `<section class="panel"><form class="panel-body" data-form="settings">
     <h2>${t('dayCounting')}</h2><p>${t('countingHelp')}</p>
     <label>${t('countRule')}<select name="counting">${options(['calendar', 'weekdays', 'working'].map(id => ({ id, name: t(id) })), current.counting)}</select></label>
-    ${textarea('holidays', 'holidays', current.holidays.join('\n'), 'dateHelp')}
-    ${textarea('deductible', 'deductible', current.deductible.join('\n'), 'dateHelp')}
+    ${settingsDates('holidays', current.holidays)}
+    ${settingsDates('deductible', current.deductible)}
     <div class="actions"><button class="primary">${t('save')}</button></div>
     <p class="error" role="alert"></p></form></section>` : ''}
-    <section class="panel"><div class="panel-body" id="update-panel"></div></section>`
+    <section class="panel"><div class="panel-body">
+    <div id="update-panel"></div>
+    <div><a class="repository-link" data-action="open-repository" href="https://github.com/Severnbli/rVacation">${t('githubRepository')}</a></div>
+    </div></section>`
 }
 
 function renderUpdate() {
@@ -329,10 +377,6 @@ function setFormError(form, error) {
   form.querySelector('.error').textContent = t(error)
 }
 
-function splitDates(input) {
-  return input.split(/[\s,;]+/).filter(Boolean)
-}
-
 async function submitForm(event) {
   const form = event.target
   const type = form.dataset.form
@@ -349,8 +393,8 @@ async function submitForm(event) {
     if (type === 'worker' || type === 'import') value.groups = data.getAll('groups')
     if (type === 'worker' || type === 'group') value.limit = value.limit === '' ? null : Number(value.limit)
     if (type === 'settings') {
-      value.holidays = splitDates(value.holidays)
-      value.deductible = splitDates(value.deductible)
+      value.holidays = data.getAll('holidays')
+      value.deductible = data.getAll('deductible')
     }
     if (type === 'import') {
       value.limit = null
@@ -451,6 +495,14 @@ document.addEventListener('click', async event => {
       break
     }
     case 'close': if (!target.form.dataset.saving) dialog.close(); break
+    case 'choose-dates': chooseSettingsDates(target); break
+    case 'remove-date': removeSettingsDate(target); break
+    case 'open-repository': {
+      event.preventDefault()
+      const result = await desktop.openRepository()
+      if (result?.error) toast(result.error)
+      break
+    }
     case 'update-check': await desktop.checkUpdate(); break
     case 'update-install': await desktop.installUpdate(); break
   }

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('desktop', {
   importDatabase: () => ipcRenderer.invoke('records:import'),
   openDataFolder: () => ipcRenderer.invoke('records:folder'),
   openWorkers: () => ipcRenderer.invoke('workers:file'),
+  openRepository: () => ipcRenderer.invoke('app:repository'),
   getUpdate: () => ipcRenderer.invoke('update:get'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
