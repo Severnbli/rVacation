@@ -85,6 +85,34 @@ test('the old service database migrates in place with its revision and recorded 
   }
 })
 
+test('firing and recovering a worker preserves vacation history and allowance across opens', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  writeLegacy(file)
+  const before = openRecords(file)
+  let archived
+  try {
+    archived = before.change({ revision: 7, change: { type: 'fireWorker', id: 'worker', value: {} } })
+    assert.equal(archived.records.workers[0].fired, true)
+    assert.deepEqual(archived.records.vacations, legacyRecords.vacations)
+  } finally {
+    before.close()
+  }
+
+  const reopened = openRecords(file)
+  try {
+    assert.deepEqual(reopened.read(), archived)
+    assert.throws(() => reopened.change({
+      revision: 8, change: { type: 'vacation', value: { workerId: 'worker', periodId: 'period', start: '2026-03-01', end: '2026-03-02' } },
+    }), { message: 'recordMissing' })
+    const restored = reopened.change({ revision: 8, change: { type: 'recoverWorker', id: 'worker', value: {} } })
+    assert.deepEqual(restored.records.workers, [{ ...legacyRecords.workers[0], fired: false }])
+    assert.deepEqual(restored.records.vacations, legacyRecords.vacations)
+    assert.deepEqual(restored.balances, archived.balances)
+  } finally {
+    reopened.close()
+  }
+})
+
 test('import preserves old records and cannot overwrite local changes', async t => {
   const directory = await directoryFor(t)
   const source = join(directory, 'service.sqlite')

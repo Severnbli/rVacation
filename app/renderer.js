@@ -108,7 +108,8 @@ function workerRows(records, overview) {
       <td class="number" title="${escape(rule)}">${max === null ? t('unlimited') : number(max)}
       ${rule ? `<br><small>${escape(rule)}</small>` : ''}</td>
       ${overview ? `<td class="number ${max !== null && used > max ? 'over' : ''}">${periodId ? remaining : t('none')}</td>` : ''}
-      <td>${overview ? button('vacation-for', 'recordShort', worker.id, 'small') : button('edit-worker', 'edit', worker.id, 'small')}</td></tr>`
+      <td><div class="actions">${overview ? button('vacation-for', 'recordShort', worker.id, 'small') :
+        button('edit-worker', 'edit', worker.id, 'small') + button('fire-worker', 'markFired', worker.id, 'small danger')}</div></td></tr>`
   })
 }
 
@@ -135,7 +136,8 @@ function workerResults(records, overviewMode) {
 }
 
 function workers(records) {
-  return heading('workers', button('import', 'bulkAdd') + button('new-worker', 'addWorker', '', 'primary')) +
+  const recover = snapshot.firedWorkers.length ? button('recover-workers', 'recoverWorkers') : ''
+  return heading('workers', recover + button('import', 'bulkAdd') + button('new-worker', 'addWorker', '', 'primary')) +
     `<section class="panel"><div class="panel-top">${filters(records, false)}</div>
       <div id="worker-results">${workerResults(records, false)}</div></section>`
 }
@@ -283,7 +285,14 @@ function render() {
 }
 
 function setSnapshot(result) {
-  snapshot = result
+  const workers = result.records.workers.filter(worker => worker.fired !== true)
+  const activeIds = new Set(workers.map(worker => worker.id))
+  snapshot = {
+    ...result,
+    firedWorkers: result.records.workers.filter(worker => worker.fired === true),
+    records: { ...result.records, workers, vacations: result.records.vacations.filter(item => activeIds.has(item.workerId)) },
+    balances: result.balances.filter(balance => activeIds.has(balance.id)),
+  }
   const periods = result.records.periods
   if (!periods.some(item => item.id === periodId)) {
     const date = today()
@@ -335,7 +344,7 @@ function groupPicker(selected = []) {
 function editor(type, title, content, id = '', submit = 'save') {
   dialog.innerHTML = `<form class="dialog-content" data-form="${type}" data-id="${escape(id)}">
     <h2 id="editor-title">${t(title)}</h2>${content}<p class="error" role="alert"></p>
-    <div class="actions dialog-actions">${button('close', 'cancel')}<button class="${submit === 'delete' ? 'danger' : 'primary'}">${t(submit)}</button></div></form>`
+    <div class="actions dialog-actions">${button('close', 'cancel')}<button class="${['delete', 'markFired'].includes(submit) ? 'danger' : 'primary'}">${t(submit)}</button></div></form>`
   dialog.setAttribute('aria-labelledby', 'editor-title')
   if (!dialog.open) dialog.showModal()
 }
@@ -377,6 +386,21 @@ function workerEdit(id) {
   const item = snapshot.records.workers.find(item => item.id === id) ?? {}
   editor('worker', id ? 'editWorker' : 'addWorker',
     nameInput(item.name) + limitInput(item.limit) + `<small>${t('personalHelp')}</small>` + groupPicker(item.groups), id)
+}
+
+function fireWorker(id) {
+  const worker = snapshot.records.workers.find(item => item.id === id)
+  if (!worker) return toast('recordMissing')
+  editor('fireWorker', 'markFired', `<strong>${escape(worker.name)}</strong><p>${t('fireWorkerHelp')}</p>`, id, 'markFired')
+}
+
+function recoverWorkers() {
+  const workers = snapshot.firedWorkers.slice().sort((a, b) => a.name.localeCompare(b.name, language)).map(worker => {
+    const groups = groupNames(worker, snapshot.records.groups).join(', ')
+    return { ...worker, name: groups ? `${worker.name} (${groups})` : worker.name }
+  })
+  editor('recoverWorker', 'recoverWorkers',
+    `<label>${t('worker')}<select name="workerId" required>${options(workers, '', 'chooseWorker')}</select></label>`, '', 'recoverWorker')
 }
 
 function groupEdit(id) {
@@ -449,7 +473,8 @@ async function submitForm(event) {
       value.names = value.names.split(/\r?\n/).map(line => line.split('\t', 1)[0].trim()).filter(Boolean)
       if (value.header) value.names.shift()
     }
-    const result = await desktop.change({ revision: snapshot.revision, change: { type, id: form.dataset.id || undefined, value } })
+    const id = type === 'recoverWorker' ? value.workerId : form.dataset.id || undefined
+    const result = await desktop.change({ revision: snapshot.revision, change: { type, id, value } })
     if (result.error === 'conflict') {
       const latest = await desktop.getRecords()
       if (!latest.error) setSnapshot(latest)
@@ -527,6 +552,8 @@ document.addEventListener('click', async event => {
       break
     }
     case 'new-worker': case 'edit-worker': workerEdit(id); break
+    case 'fire-worker': fireWorker(id); break
+    case 'recover-workers': recoverWorkers(); break
     case 'new-group': case 'edit-group': groupEdit(id); break
     case 'new-period': case 'edit-period': periodEdit(id); break
     case 'new-vacation': case 'edit-vacation': vacationEdit(id); break
