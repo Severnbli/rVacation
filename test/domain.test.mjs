@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyChange, countDays, initialRecords, summarize } from '../server/domain.mjs'
+import { applyChange, countDays, initialRecords, summarize } from '../app/domain.mjs'
 
 test('counts inclusive dates, holidays, and shared deductible dates once within a vacation', () => {
   const settings = { counting: 'working', holidays: ['2026-05-01', '2026-05-04'],

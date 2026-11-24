@@ -72,12 +72,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: assets
           merge-multiple: true
-      - name: Publish both installers and the shared records service
+      - name: Publish both installers
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
@@ -86,6 +85,5 @@ jobs:
           test -f assets/latest-linux.yml
           test -f "assets/rVacation-$VERSION-x64.exe"
           test -f "assets/rVacation-$VERSION-x86_64.AppImage"
-          git archive --format=tar.gz --prefix="rVacation-service-$VERSION/" -o "assets/rVacation-service-$VERSION.tar.gz" HEAD server README.md AGENTS.md LICENSE docs
-          gh release create "v$VERSION" assets/* --target "$GITHUB_SHA" \
+          gh release create "v$VERSION" assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "rVacation $VERSION" --generate-notes --latest

@@ -1,30 +1,31 @@
 # rVacation
 
-rVacation is a Windows and Linux desktop app for tracking worker vacations and balances. The app ships in English, Belarusian, and Russian. Desktop clients share their records through an office-hosted service.
+rVacation is a Windows and Linux desktop app for tracking worker vacations and balances. The app ships in English, Belarusian, and Russian. Each OS user account has its own local SQLite database. Recording and viewing vacations works offline.
 
-## Install and connect
+## Install and start
 
 1. Download the Windows x64 installer or Linux x86-64 AppImage from [GitHub Releases](https://github.com/Severnbli/rVacation/releases/latest).
 2. Run the Windows installer. On Linux, make the AppImage executable before opening it. If your distribution lacks FUSE support, use the AppImage's `--appimage-extract-and-run` option to launch it.
-3. In Settings, enter the service address and access key provided by your administrator. Once connected, create a period and add workers. Groups and day-counting settings can be configured as needed.
+3. Create a period and add workers from Overview. Groups and day-counting settings can be configured as needed. If you have records in the old shared service, import them before saving anything locally.
 
 The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks the GitHub release feed and offers **Restart and install** in Settings when an update has downloaded.
 
-## Host the shared records service
+## Move records from the old shared service
 
-Download and extract the service archive from the same release. Install Node.js 24 on the host. From the extracted directory, set `RVACATION_KEY` to a randomly generated shared secret of at least 24 characters, then run:
+1. Make a SQLite backup of `rvacation.sqlite` or the file configured as `RVACATION_DB` on the former service host. If you copy the files directly, stop the service first and keep any matching `-wal` file alongside the database in a writable folder. [SQLite backups](https://sqlite.org/backup.html), [SQLite write-ahead logs](https://www.sqlite.org/wal.html#the_wal_file)
+2. In the desktop app, go to **Settings → Local records → Import old service database** and select the copy. Import is available before the first local save. It brings over workers, groups, periods, vacations, their recorded day counts, and day-counting settings.
 
-```sh
-node server/index.mjs
-```
+Each installation keeps its own records after import. Changes made on one computer stay on that computer.
 
-The service listens at `127.0.0.1:8787` by default and stores records in `rvacation.sqlite`. Set `RVACATION_DB` to use a dedicated database path, `RVACATION_PORT` to change the port, and `RVACATION_HOST` to change the bind address.
+## Back up or move local records
 
-For multiple computers, put the service behind an HTTPS reverse proxy on the office network, forwarding `/v1/records` and the Authorization header. Give authorized secretaries the HTTPS address and shared key. Clients using that key can read and edit all records. HTTPS is required for remote connections. A desktop client on the host can use `http://127.0.0.1:8787` for local evaluation. Stop the service before making a file copy of the SQLite database, or use an SQLite online backup tool.
+Choose **Settings → Local records → Open data folder**, then quit rVacation and copy `rvacation.sqlite` to a backup location. To restore or move your records, open the destination's data folder the same way, quit the app, and place the backup there as `rvacation.sqlite`. Save a copy of the destination database first if it already contains records.
+
+The database lives outside the installation directory. When an update changes the schema, rVacation migrates the existing file in a transaction the next time it opens.
 
 ## Develop and release
 
-Run `npm ci` from the repository root with Node.js 24. Start the service as above and run `npm start` in another terminal. Run `npm test` for the domain, service, and versioning checks. Run `npm run build -- --x64` on each target operating system to create its installer under `dist/`.
+Run `npm ci` from the repository root with Node.js 24, then run `npm start` to open the app. Run `npm test` for the domain, local storage, and release versioning checks. Run `npm run build -- --x64` on each target operating system to create its installer under `dist/`.
 
 CI checks `dev` and pull requests into `main` on both platforms. After merging to `main`, run the **Release** workflow. Leave the series field blank for a patch release or enter a newer `major.minor` to start at patch zero. The first blank run publishes `0.1.0`.
 
