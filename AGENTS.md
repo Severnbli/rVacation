@@ -1,8 +1,8 @@
 # rVacation project guidance
 
-- Codex uses this file as the repository entry point. Read [the project plan](docs/project-plan.md) before changing product behavior, architecture, localization, CI, or releases.
-- The repository is in the planning stage. Start implementation only when requested. Treat open decisions in the plan as unresolved requirements.
-- Use `dev` for development and pull requests from `dev` into `main` for integration. Run relevant checks and make one focused local commit per completed task. Push only when requested.
-- Preserve English, Belarusian, and Russian coverage when changing user-facing text. All applicable allowance rules must be enforced according to the precedence in the project plan.
+- At the start of every task, review the affected UI and UX. Identify the user flow, entry point, and states before making changes. For UI changes, exercise the flow in the running app with attention to keyboard navigation, narrow windows, and localization.
+- Read [the project plan](docs/project-plan.md) before changing product behavior, architecture, localization, CI, or releases. Read the [README](README.md) for setup and verification commands.
+- Develop on `dev` and integrate through pull requests into `main`. Run relevant checks and make one focused local commit per completed task. Push only when requested.
+- Preserve English, Belarusian, and Russian coverage when changing user-facing text. Enforce allowance precedence as documented in the project plan.
 - Use an en dash in place of an em dash in project material.
-- For guidance-only changes, run `git diff --cached --check` from the repository root after staging and verify the documentation links. Build and test commands will be documented once those entry points exist.
+- Run `npm test` from the repository root for application changes. Check packaging on both platforms when changing the release or desktop runtime. For guidance-only changes, run `git diff --cached --check` and verify the documentation links.
