@@ -21,6 +21,7 @@ let page = 'overview'
 let balanceDate = ''
 let periodWorkerId = ''
 let groupId = ''
+let holidayYear
 let sortBy = 'name'
 let search = ''
 let version = ''
@@ -269,22 +270,19 @@ async function holidayFileDates(file) {
 
 function mountHolidaySettings(form, settings) {
   const holidays = new Set(settings.holidays)
-  const count = form.querySelector('.settings-date-count')
   const current = today()
-  const updateCount = () => { count.textContent = `${t('selectedDates')} (${number(holidays.size)})` }
-  const calendar = mountCalendar(form.querySelector('[data-calendar-host]'), {
-    id: 'settings-holidays', initial: mostRelevantDate(holidays, current), today: current, language, t,
-    markedDates: holidays, selected: date => holidays.has(date),
+  const initial = holidayYear ? `${holidayYear}-01-01` : mostRelevantDate(holidays, current)
+  const calendar = mountYearCalendar(form.querySelector('[data-calendar-host]'), {
+    initial, today: current, language, t, dates: holidays,
+    onYearChange(year) { holidayYear = year },
     choose(date) {
       if (form.dataset.saving) return
       if (!holidays.delete(date)) holidays.add(date)
-      updateCount()
     },
   })
   form.addEventListener('formdata', ({ formData }) => {
     for (const date of holidays) formData.append('holidays', date)
   })
-  updateCount()
 
   const input = form.querySelector('[data-holiday-file]')
   const importButton = form.querySelector('[data-action="import-holidays"]')
@@ -320,8 +318,7 @@ function mountHolidaySettings(form, settings) {
       }
       for (const date of imported) holidays.add(date)
       calendar.showDate(mostRelevantDate(imported, today()))
-      updateCount()
-      status.textContent = t('holidayDatesImported')
+      status.textContent = t('holidayDatesImported').replace('{count}', number(imported.size))
     } finally {
       delete form.dataset.importingDates
       save.disabled = false
@@ -331,15 +328,14 @@ function mountHolidaySettings(form, settings) {
 
 function holidaySettings() {
   return `<section class="settings-calendar" aria-labelledby="holidays-label">
+    <div class="calendar-title">
     <h3 id="holidays-label">${t('holidays')}</h3>
-    <p class="settings-date-count" role="status"></p>
-    <div data-calendar-host></div>
-    <div class="actions">
-    <button type="button" data-action="import-holidays" aria-describedby="holiday-file-format">${t('importHolidayDates')}</button>
-    <input type="file" accept=".txt,text/plain" multiple data-holiday-file hidden>
+    <button type="button" class="small" data-action="import-holidays" aria-describedby="holiday-file-format">${t('importHolidayDates')}</button>
     </div>
+    <input type="file" accept=".txt,text/plain" multiple data-holiday-file hidden>
     <small id="holiday-file-format">${t('holidayFileFormat')}</small>
     <p class="holiday-import-status" data-holiday-import-status role="status"></p>
+    <div class="calendar-year" data-calendar-host></div>
     <small>${t('holidayHelp')}</small>
     </section>`
 }
@@ -361,8 +357,8 @@ function settings() {
     <h2>${t('periodRules')}</h2>
     ${field('socialThreshold', 'socialThreshold', current.socialThreshold, 'number', 'required min="0" step="1"')}
     <small>${t('socialThresholdHelp')}</small>
-    <div class="actions"><button type="submit" class="primary">${t('save')}</button></div>
-    <p class="error" role="alert"></p></form></section>` : ''}
+    <div class="actions settings-actions"><button type="submit" class="primary">${t('save')}</button>
+    <p class="error" role="alert"></p></div></form></section>` : ''}
     <section class="panel"><div class="panel-body">
     <div id="update-panel"></div>
     <div><a class="repository-link" data-action="open-repository" href="https://github.com/Severnbli/rVacation">${t('githubRepository')}</a></div>

@@ -105,14 +105,22 @@ legend { padding: 0 5px; }
 .range-icon { width: 20px; height: 19px; border: solid var(--primary); border-width: 5px 2px 2px; border-radius: 4px; }
 .range-icon::after { content: ""; display: block; width: 7px; height: 2px; margin: 4px auto; background: var(--primary); }
 .period-fields, .period-choice:not([hidden]) { display: grid; gap: 9px; }
-.settings-calendar { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; width: min(100%, 420px); }
+.settings-calendar { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; max-width: 1040px; }
 .settings-calendar h3 { font-size: 1rem; margin: 0; }
 .settings-date-count, .holiday-import-status { font-size: .87rem; }
 .holiday-import-status:empty { display: none; }
 .holiday-import-status { overflow-wrap: anywhere; }
-.settings-calendar .calendar-header { gap: 6px; }
-.settings-calendar .calendar-header button { min-width: 32px; }
-.settings-calendar .calendar-month-fields { grid-template-columns: minmax(0, 1fr) 4.8rem; }
+.calendar-year { display: grid; gap: 9px; min-width: 0; }
+.calendar-year-toolbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.calendar-year-toolbar .calendar-header { gap: 6px; }
+.calendar-year-toolbar .calendar-header button { min-width: 34px; }
+.calendar-year-toolbar .calendar-header input { width: 5.2rem; }
+.calendar-year-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 205px), 1fr)); gap: 10px; }
+.calendar-year-month { padding: 8px; border: 1px solid #d7e3dd; border-radius: 7px; }
+.calendar-year-month h4 { margin: 0 2px 5px; font-size: .9rem; }
+.calendar-year-month h4::first-letter { text-transform: uppercase; }
+.calendar-year-month .calendar td button { min-height: 24px; padding: 1px; font-size: .87rem; scroll-margin-block-end: 62px; }
+.settings-actions { position: sticky; bottom: 0; z-index: 1; padding-block: 8px; background: white; border-top: 1px solid var(--line); }
 #update-panel { display: grid; gap: 14px; }
 .repository-link { color: var(--primary); text-underline-offset: 3px; }
 #date-picker { width: min(790px, 96vw); }
