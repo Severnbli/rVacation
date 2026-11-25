@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { applyChange, initialRecords, RecordError, summarize, upgradePeriodRules, upgradeRecords } from './domain.mjs'
+import { applyChange, initialRecords, RecordError, removeLegacyExtraDates, summarize, upgradePeriodRules, upgradeRecords } from './domain.mjs'
 
 function snapshot(row) {
   const records = JSON.parse(row.contents)
@@ -72,6 +72,11 @@ const migrations = [
     const records = upgradePeriodRules(JSON.parse(row.contents))
     database.prepare('UPDATE records SET contents = ? WHERE id = 1').run(JSON.stringify(records))
   },
+  database => {
+    const row = database.prepare('SELECT contents FROM records WHERE id = 1').get()
+    const records = removeLegacyExtraDates(JSON.parse(row.contents))
+    database.prepare('UPDATE records SET contents = ? WHERE id = 1').run(JSON.stringify(records))
+  },
 ]
 
 function migrate(database) {
@@ -95,7 +100,7 @@ function legacyContents(file) {
     const source = new DatabaseSync(file, { readOnly: true })
     try {
       if (version(source) !== 0) throw new Error('Unknown legacy database version')
-      return JSON.stringify(upgradeRecords(JSON.parse(readLegacy(source).contents)))
+      return JSON.stringify(removeLegacyExtraDates(upgradeRecords(JSON.parse(readLegacy(source).contents))))
     } finally {
       source.close()
     }

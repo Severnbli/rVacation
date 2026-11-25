@@ -19,7 +19,7 @@ const migratedWorker = { ...legacyRecords.workers[0], legacyPeriods: legacyRecor
   periodStart: '2028-01-01', periodHistory: [{ type: 'startImported', to: '2026-01-01',
     recurringStart: '2028-01-01', recordedAt: null, changes: [] }] }
 const migratedVacation = { ...legacyRecords.vacations[0], kind: 'annual',
-  dayRule: { counting: 'working', deductible: [] }, daysBeforeHolidays: 4 }
+  dayRule: { counting: 'working' }, daysBeforeHolidays: 4 }
 
 async function directoryFor(t) {
   const directory = await mkdtemp(join(tmpdir(), 'rvacation-test-'))
@@ -90,7 +90,7 @@ test('the old service database migrates in place with its revision and recorded 
   }
   const database = new DatabaseSync(file)
   try {
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 3)
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 4)
   } finally {
     database.close()
   }
@@ -203,6 +203,39 @@ test('schema two maternity dates are preserved and the working-year rule correct
     assert.equal(event.type, 'maternityRuleUpdated')
     assert.equal(event.changes[0].before.end, '2026-09-03')
     assert.equal(event.changes[0].after.end, '2026-08-31')
+  } finally {
+    records.close()
+  }
+})
+
+test('schema three removes extra dates and credits only the extra days in standard charges', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  const worker = { id: 'worker', name: 'Worker', groups: [], limit: 15, periodStart: '2026-01-01' }
+  const annual = { id: 'annual', workerId: worker.id, kind: 'annual', periodId: 'year-1',
+    start: '2026-01-02', end: '2026-01-05', days: 2, daysBeforeHolidays: 4, interruptedDays: 1,
+    dayRule: { counting: 'weekdays', deductible: ['2026-01-03', '2026-01-04'] } }
+  const sick = { id: 'sick', workerId: worker.id, kind: 'sick', start: '2026-01-05', end: '2026-01-05', days: 1 }
+  const custom = { ...annual, id: 'custom', start: '2026-02-06', end: '2026-02-09', days: 3,
+    daysBeforeHolidays: 4, interruptedDays: 0, dayRule: { counting: 'weekdays', deductible: ['2026-02-07'] } }
+  const { settings } = initialRecords()
+  writeLegacy(file, { ...initialRecords(), workers: [worker], vacations: [annual, sick, custom],
+    settings: { ...settings, holidays: ['2026-01-03', '2026-02-07'], deductible: ['2026-01-03', '2026-01-04'] } })
+  const source = new DatabaseSync(file)
+  source.exec('PRAGMA user_version = 3')
+  source.close()
+
+  const records = openRecords(file)
+  try {
+    const saved = records.read()
+    assert.equal(saved.revision, 7)
+    assert.equal(Object.hasOwn(saved.records.settings, 'deductible'), false)
+    assert.deepEqual(saved.records.settings.holidays, ['2026-01-03', '2026-02-07'])
+    assert.deepEqual(saved.records.vacations, [
+      { ...annual, dayRule: { counting: 'weekdays' }, daysBeforeHolidays: 2, days: 1 },
+      sick,
+      { ...custom, dayRule: { counting: 'weekdays' }, daysBeforeHolidays: 3 },
+    ])
+    assert.equal(saved.balances[0].periods[0].remaining, 11)
   } finally {
     records.close()
   }

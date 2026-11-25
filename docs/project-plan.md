@@ -26,9 +26,8 @@ rVacation is a desktop app for secretaries to maintain worker records, record va
 
 ## Day counting
 
-- Count calendar days by default, with a weekdays option. Configured public holidays are free in either mode. When holiday dates change, update charges for recorded annual vacations using the weekend rule and extra chargeable dates saved with each vacation.
+- Count calendar days by default, with a weekdays option. Configured public holidays are free in either mode. When holiday dates change, update charges for recorded annual vacations using the counting rule saved with each vacation.
 - The employee’s own certified incapacity and pregnancy and childbirth leave may overlap annual vacation. Return the chargeable days covered by either type to the worker’s annual balance once, accounting for public holidays. Record the agreed extension by editing the end date, or record transferred days separately in the same working year. Block intersections between other leave records. See [Labour Code Articles 151 and 171](https://faolex.fao.org/docs/pdf/blr245118.pdf).
-- Let the secretary mark specific dates as chargeable for all workers. Those dates count when they fall within a vacation and are outside the holiday list, even if the day-counting rule would exclude them.
 
 ## Localization
 

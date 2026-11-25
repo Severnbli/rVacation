@@ -10,6 +10,10 @@ rVacation is a Windows and Linux desktop app for tracking employee leave and vac
 
 Record the employee’s own sick leave from **Leave**. Overlapping annual vacation days return to the balance. Edit the vacation end date to record an extension, or record a separate vacation for days transferred within the same working year.
 
+In **Settings → Vacation day counting**, choose a year and click dates in the holiday calendar to add or remove them. To load public holidays, choose **Import holidays**, select one or more UTF-8 text files, then save the settings. Use one `YYYY-MM-DD` date per line. Blank lines and text after `#` are ignored.
+
+Belarus public holiday files are available for [2026](holidays/belarus-2026.txt) and [2027](holidays/belarus-2027.txt). The files list non-working public holidays under Presidential Decree No. 157. They exclude dates that are days off solely because a working day was moved.
+
 The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks GitHub for updates at every launch. When an update is ready, choose **Restart and install** in the popup or select **Later** to keep working and install it from Settings.
 
 ## Back up or move local records

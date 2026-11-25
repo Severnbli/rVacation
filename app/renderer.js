@@ -1,3 +1,5 @@
+import { annualVacationCharge, annualVacationPeriods } from './domain.mjs'
+import { parseHolidayDates } from './holiday-import.mjs'
 import { interruptsVacation, leaveKinds, movesWorkingYear } from './leave-types.mjs'
 import { isRecordDate, localDate as today, periodOn, periodsFor } from './periods.mjs'
 
@@ -19,6 +21,7 @@ let page = 'overview'
 let balanceDate = ''
 let periodWorkerId = ''
 let groupId = ''
+let holidayYear
 let sortBy = 'name'
 let search = ''
 let version = ''
@@ -244,49 +247,97 @@ function recordsStatus() {
     <div class="actions">${button('retry-records', 'retry')}</div>`
 }
 
-function settingsDates(name, dates) {
-  return `<div class="date-field" data-date-field="${name}" role="group" aria-labelledby="${name}-label">
-    <span id="${name}-label" class="date-field-label">${t(name)}</span>
-    <div class="actions"><button type="button" data-action="choose-dates" aria-haspopup="dialog"
-      aria-describedby="${name}-label">${t('chooseDates')}</button></div>
-    ${dates.length ? `<ul class="date-list">${dates.map(date => {
-      const label = displayDate(date)
-      return `<li><input type="hidden" name="${name}" value="${escape(date)}">
-        <button type="button" class="small date-chip" data-action="remove-date"
-          aria-label="${escape(t('removeDate').replace('{date}', label))}">${escape(label)} <span aria-hidden="true">×</span></button></li>`
-    }).join('')}</ul>` : `<p>${t('noDates')}</p>`}
-    </div>`
+function mostRelevantDate(dates, current) {
+  const sorted = [...dates].sort()
+  return sorted.find(date => date >= current) ?? sorted.at(-1) ?? current
 }
 
-function chooseSettingsDates(target) {
-  const form = target.form
-  if (form.dataset.saving) return
-  const field = target.closest('[data-date-field]')
-  const name = field.dataset.dateField
-  const dates = new FormData(form).getAll(name)
-  openDatePicker({
-    title: t(name), dates, language, t, today: today(),
-    onApply: selected => {
-      field.outerHTML = settingsDates(name, selected)
-      form.querySelector(`[data-date-field="${name}"] [data-action="choose-dates"]`).focus()
+async function holidayFileDates(file) {
+  let result
+  try {
+    result = parseHolidayDates(await file.text())
+  } catch {
+    return { error: t('unreadableHolidayFile').replace('{file}', () => file.name) }
+  }
+  if (result.invalidLine) {
+    return { error: t('invalidHolidayDate').replace('{line}', number(result.invalidLine)).replace('{file}', () => file.name) }
+  }
+  if (!result.dates.length) {
+    return { error: t('emptyHolidayFile').replace('{file}', () => file.name) }
+  }
+  return result
+}
+
+function mountHolidaySettings(form, settings) {
+  const holidays = new Set(settings.holidays)
+  const current = today()
+  const initial = holidayYear ? `${holidayYear}-01-01` : mostRelevantDate(holidays, current)
+  const calendar = mountYearCalendar(form.querySelector('[data-calendar-host]'), {
+    initial, today: current, language, t, dates: holidays,
+    onYearChange(year) { holidayYear = year },
+    choose(date) {
+      if (form.dataset.saving) return
+      if (!holidays.delete(date)) holidays.add(date)
     },
+  })
+  form.addEventListener('formdata', ({ formData }) => {
+    for (const date of holidays) formData.append('holidays', date)
+  })
+
+  const input = form.querySelector('[data-holiday-file]')
+  const importButton = form.querySelector('[data-action="import-holidays"]')
+  const status = form.querySelector('[data-holiday-import-status]')
+  const save = form.querySelector('[type="submit"]')
+  importButton.addEventListener('click', () => {
+    if (!form.dataset.saving && !form.dataset.importingDates) input.click()
+  })
+  input.addEventListener('change', async () => {
+    const files = [...input.files]
+    input.value = ''
+    if (!files.length || form.dataset.saving || form.dataset.importingDates) return
+    form.dataset.importingDates = 'yes'
+    save.disabled = true
+    status.textContent = ''
+    status.classList.remove('error')
+    try {
+      const imported = new Set()
+      for (const file of files) {
+        const { dates, error } = await holidayFileDates(file)
+        if (!form.isConnected) return
+        if (error) {
+          status.classList.add('error')
+          status.textContent = error
+          return
+        }
+        for (const date of dates) imported.add(date)
+      }
+      for (const date of holidays) imported.delete(date)
+      if (!imported.size) {
+        status.textContent = t('noNewHolidayDates')
+        return
+      }
+      for (const date of imported) holidays.add(date)
+      calendar.showDate(mostRelevantDate(imported, today()))
+      status.textContent = t('holidayDatesImported').replace('{count}', number(imported.size))
+    } finally {
+      delete form.dataset.importingDates
+      save.disabled = false
+    }
   })
 }
 
-function removeSettingsDate(target) {
-  if (target.form.dataset.saving) return
-  const item = target.closest('li')
-  const adjacent = item.nextElementSibling ?? item.previousElementSibling
-  if (adjacent) {
-    item.remove()
-    adjacent.querySelector('button').focus()
-  } else {
-    const form = target.form
-    const field = target.closest('[data-date-field]')
-    const name = field.dataset.dateField
-    field.outerHTML = settingsDates(name, [])
-    form.querySelector(`[data-date-field="${name}"] [data-action="choose-dates"]`).focus()
-  }
+function holidaySettings() {
+  return `<section class="settings-calendar" aria-labelledby="holidays-label">
+    <div class="calendar-title">
+    <h3 id="holidays-label">${t('holidays')}</h3>
+    <button type="button" class="small" data-action="import-holidays" aria-describedby="holiday-file-format">${t('importHolidayDates')}</button>
+    </div>
+    <input type="file" accept=".txt,text/plain" multiple data-holiday-file hidden>
+    <small id="holiday-file-format">${t('holidayFileFormat')}</small>
+    <p class="holiday-import-status" data-holiday-import-status role="status"></p>
+    <div class="calendar-year" data-calendar-host></div>
+    <small>${t('holidayHelp')}</small>
+    </section>`
 }
 
 function settings() {
@@ -302,14 +353,12 @@ function settings() {
     ${current ? `<section class="panel"><form class="panel-body" data-form="settings">
     <h2>${t('dayCounting')}</h2><p>${t('countingHelp')}</p>
     <label>${t('countRule')}<select name="counting">${options(['calendar', 'weekdays'].map(id => ({ id, name: t(id) })), current.counting === 'working' ? 'weekdays' : current.counting)}</select></label>
-    ${settingsDates('holidays', current.holidays)}
-    <small>${t('holidayHelp')}</small>
-    ${settingsDates('deductible', current.deductible)}
+    ${holidaySettings()}
     <h2>${t('periodRules')}</h2>
     ${field('socialThreshold', 'socialThreshold', current.socialThreshold, 'number', 'required min="0" step="1"')}
     <small>${t('socialThresholdHelp')}</small>
-    <div class="actions"><button class="primary">${t('save')}</button></div>
-    <p class="error" role="alert"></p></form></section>` : ''}
+    <div class="actions settings-actions"><button type="submit" class="primary">${t('save')}</button>
+    <p class="error" role="alert"></p></div></form></section>` : ''}
     <section class="panel"><div class="panel-body">
     <div id="update-panel"></div>
     <div><a class="repository-link" data-action="open-repository" href="https://github.com/Severnbli/rVacation">${t('githubRepository')}</a></div>
@@ -347,6 +396,7 @@ function render() {
   footer.innerHTML = `<label>${t('language')}<select id="language">${options(Object.entries(localeNames).map(([id, name]) => ({ id, name })), language)}</select></label>`
   if (page === 'settings') {
     main.innerHTML = settings()
+    if (snapshot) mountHolidaySettings(main.querySelector('[data-form="settings"]'), snapshot.records.settings)
     renderUpdate()
   } else if (!snapshot) {
     main.innerHTML = heading(page) + `<section class="panel"><div class="panel-body">${recordsStatus()}</div></section>`
@@ -435,12 +485,32 @@ function dateRange({ start = '', end = '' }) {
     </div>`
 }
 
+function describeVacationRange(form, start, end) {
+  const records = snapshot.records
+  const worker = records.workers.find(item => item.id === form.elements.workerId.value)
+  if (!worker) return { message: 'chooseWorker' }
+
+  const previous = records.vacations.find(item => item.id === form.dataset.id)
+  const { period, periods } = vacationPeriodChoice(form, worker, previous, start, end)
+  const { vacation, remaining, exceedsAllowance } = annualVacationCharge(records, { worker, previous, period, start, end })
+  const message = !periods.length ? 'workerNeedsPeriod' : !period ? 'noPeriodForStart' :
+    exceedsAllowance ? 'allowanceExceeded' : ''
+  return {
+    days: vacation.days,
+    remaining,
+    period: period ? `${periodName(period)} · ${periodDates(period)}` : '',
+    message, exceedsAllowance,
+  }
+}
+
 function chooseRecordDates(target) {
   const form = target.form
   if (form.dataset.saving) return
   const dates = [form.elements.start.value, form.elements.end.value]
   openDatePicker({
-    title: t('dateRange'), dates, language, t, today: today(), endpoints: true,
+    title: t('dateRange'), dates, language, t, today: today(),
+    holidays: new Set(snapshot.records.settings.holidays),
+    describeRange: form.elements.kind.value === 'annual' ? (start, end) => describeVacationRange(form, start, end) : undefined,
     onApply: ([start, end]) => {
       target.closest('.range-field').outerHTML = dateRange({ start, end })
       updateLeaveFields(form)
@@ -517,6 +587,12 @@ function balanceEdit(id) {
   dialog.querySelector('[name="socialTaken"]').dataset.original = period.socialTaken
 }
 
+function vacationPeriodChoice(form, worker, previous, start, end) {
+  const periods = annualVacationPeriods(snapshot.records, worker, previous, start > end ? start : end)
+  const manual = periods.find(period => period.id === form.dataset.manualPeriod)
+  return { periods, period: manual ?? periodOn(periods, start) }
+}
+
 function updateLeaveFields(form) {
   const worker = snapshot.records.workers.find(item => item.id === form.elements.workerId.value)
   const { start, end, kind, periodId } = form.elements
@@ -535,20 +611,20 @@ function updateLeaveFields(form) {
   help.hidden = !help.textContent
   if (!worker) return
 
-  const through = [today(), start.value, end.value].sort().at(-1)
-  const previous = snapshot.records.vacations.find(item => item.id === form.dataset.id && item.workerId === worker.id)
-  const scheduled = previous?.kind === 'annual' ? [...entries, previous] : entries
-  const periods = periodsFor(worker, scheduled, snapshot.records.settings.socialThreshold, through)
   if (pickerVisible) {
-    const manual = form.dataset.manualPeriod
-    const selected = periods.some(period => period.id === manual) ? manual : periodOn(periods, start.value)?.id ?? ''
+    const previous = snapshot.records.vacations.find(item => item.id === form.dataset.id)
+    const { periods, period } = vacationPeriodChoice(form, worker, previous, start.value, end.value)
+    const selected = period?.id ?? ''
     const choices = periods.slice().reverse().map(period => ({ id: period.id, name: `${periodName(period)} · ${periodDates(period)}` }))
     periodId.innerHTML = options(choices, selected, 'choosePeriod')
     periodId.value = selected
     if (!periods.length) setFormError(form, 'workerNeedsPeriod')
     else if (!selected) setFormError(form, 'noPeriodForStart')
+  } else if (movesWorkingYear(kind.value)) {
+    const through = [today(), start.value, end.value].sort().at(-1)
+    const periods = periodsFor(worker, entries, snapshot.records.settings.socialThreshold, through)
+    if (!periodOn(periods, start.value)) setFormError(form, 'leaveOutsidePeriod')
   }
-  if (movesWorkingYear(kind.value) && !periodOn(periods, start.value)) setFormError(form, 'leaveOutsidePeriod')
 }
 
 function vacationEdit(id, workerId) {
@@ -583,7 +659,7 @@ async function submitForm(event) {
   const type = form.dataset.form
   if (!type) return
   event.preventDefault()
-  if (form.dataset.saving) return
+  if (form.dataset.saving || form.dataset.importingDates) return
   form.dataset.saving = 'yes'
   const submit = form.querySelector('button:not([type="button"])')
   submit.disabled = true
@@ -607,7 +683,6 @@ async function submitForm(event) {
     if (type === 'settings') {
       value.socialThreshold = Number(value.socialThreshold)
       value.holidays = data.getAll('holidays')
-      value.deductible = data.getAll('deductible')
     }
     if (type === 'import') {
       value.limit = null
@@ -747,9 +822,7 @@ document.addEventListener('click', async event => {
       break
     }
     case 'close': if (!target.form.dataset.saving) dialog.close(); break
-    case 'choose-dates': chooseSettingsDates(target); break
     case 'record-dates': chooseRecordDates(target); break
-    case 'remove-date': removeSettingsDate(target); break
     case 'open-repository': {
       event.preventDefault()
       const result = await desktop.openRepository()

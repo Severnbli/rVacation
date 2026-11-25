@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyChange, countDays, initialRecords, summarize } from '../app/domain.mjs'
+import { annualVacationCharge, annualVacationPeriods, applyChange, countDays, initialRecords, summarize } from '../app/domain.mjs'
 import { periodsFor } from '../app/periods.mjs'
 
 function model() {
@@ -18,20 +18,18 @@ function model() {
   return { records, change, addWorker, balance, leave }
 }
 
-test('counts inclusive dates, holiday credits, and extra chargeable dates once', () => {
-  const settings = { counting: 'weekdays', holidays: ['2026-05-01', '2026-05-04'],
-    deductible: ['2026-05-01', '2026-05-03', '2026-05-18'] }
-  assert.equal(countDays('2026-04-30', '2026-05-11', settings), 7)
+test('counts inclusive dates and holiday credits once', () => {
+  const settings = { counting: 'weekdays', holidays: ['2026-05-01', '2026-05-04'] }
+  assert.equal(countDays('2026-04-30', '2026-05-11', settings), 6)
   assert.equal(countDays('2026-04-30', '2026-05-11', { ...settings, counting: 'calendar' }), 10)
   assert.throws(() => countDays('2026-02-29', '2026-03-01', settings), /invalidDate/)
   assert.throws(() => countDays('2026-03-02', '2026-03-01', settings), /invalidRange/)
 })
 
 test('calendar days include ordinary weekends and skip holidays even on weekends', () => {
-  const settings = { counting: 'calendar', holidays: ['2026-05-03'], deductible: [] }
+  const settings = { counting: 'calendar', holidays: ['2026-05-03'] }
   assert.equal(countDays('2026-05-02', '2026-05-03', settings), 1)
   assert.equal(countDays('2026-05-03', '2026-05-03', settings), 0)
-  assert.equal(countDays('2026-05-02', '2026-05-03', { ...settings, deductible: ['2026-05-03'] }), 1)
   assert.equal(countDays('2026-05-02', '2026-05-03', { ...settings, counting: 'working' }), 0)
 })
 
@@ -170,6 +168,42 @@ test('an annual vacation recorded after a sick leave uses the credited day count
   assert.equal(balance(workerId).periods[0].remaining, 0)
   change('deleteVacation', undefined, sick)
   assert.equal(balance(workerId).periods[0].remaining, -1)
+})
+
+test('vacation date preview matches the saved charge and remaining balance when editing a record', () => {
+  const { records, change, addWorker, balance, leave } = model()
+  change('group', { name: 'Office', limit: 12 })
+  const workerId = addWorker('2025-09-01', null, [records.groups[0].id])
+  change('settings', { ...records.settings, counting: 'weekdays', holidays: ['2026-05-01'] })
+  const annual = leave(workerId, 'annual', '2026-04-30', '2026-05-04', 'year-1')
+  leave(workerId, 'sick', '2026-04-30', '2026-05-01')
+  change('periodBalance', { periodId: 'year-1', remaining: 3, socialTaken: 0 }, workerId)
+  change('settings', { ...records.settings, counting: 'calendar' })
+
+  const preview = end => {
+    const worker = records.workers[0]
+    const previous = records.vacations.find(entry => entry.id === annual)
+    const period = annualVacationPeriods(records, worker, previous, end)[0]
+    return annualVacationCharge(records, { worker, previous, period, start: previous.start, end })
+  }
+  const unchanged = preview('2026-05-04')
+  assert.equal(unchanged.vacation.days, 1)
+  assert.equal(unchanged.remaining, 3)
+  const extended = preview('2026-05-05')
+  assert.equal(extended.vacation.days, 4)
+  assert.equal(extended.remaining, 0)
+  assert.equal(preview('2026-05-06').exceedsAllowance, true)
+
+  leave(workerId, 'annual', '2026-04-30', '2026-05-05', 'year-1', annual)
+  assert.equal(records.vacations[0].days, extended.vacation.days)
+  assert.equal(balance(workerId).periods[0].remaining, extended.remaining)
+})
+
+test('an annual vacation can use an explicitly chosen working year after the selected dates', () => {
+  const { addWorker, balance, leave } = model()
+  const workerId = addWorker('2023-09-01', 5)
+  leave(workerId, 'annual', '2024-04-01', '2024-04-02', 'year-2')
+  assert.equal(balance(workerId).periods[1].remaining, 3)
 })
 
 test('pregnancy and childbirth leave interrupts annual vacation while childcare leave shifts the working year', () => {
