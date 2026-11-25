@@ -1,6 +1,6 @@
 # rVacation
 
-rVacation is a Windows and Linux desktop app for tracking worker vacations and balances. The app ships in English, Belarusian, and Russian. Each OS user account has its own local SQLite database. Recording and viewing vacations works offline.
+rVacation is a Windows and Linux desktop app for tracking employee leave and vacation balances under the [Labour Code of the Republic of Belarus](https://pravo.by/document/?guid=3871&p0=HK9900296). The app ships in English, Belarusian, and Russian. Each OS user account has its own local SQLite database. Recording and viewing vacations works offline.
 
 ## Install and start
 
