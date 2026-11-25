@@ -145,6 +145,9 @@ legend { padding: 0 5px; }
 .calendar td button.calendar-holiday { position: relative; padding-bottom: 8px; background: #f8e9d6; color: #794010; }
 .calendar td button.calendar-holiday::after, .calendar-legend::before { content: ""; border: 2px solid currentColor; border-radius: 50%; }
 .calendar td button.calendar-holiday::after { position: absolute; inset-block-end: 4px; inset-inline-start: calc(50% - 2px); }
+.calendar td button.calendar-in-range { background: #dceee5; }
+.calendar td button.calendar-in-range:hover { background: #cde7d9; }
+.calendar td button.calendar-range-edge { border-color: var(--primary); }
 .calendar td button[aria-pressed="true"] { background: var(--primary); color: white; }
 #notice:empty { display: none; }
 #notice { position: fixed; width: max-content; max-width: 70vw; right: 25px; bottom: 24px; background: #122e27; color: white; border-radius: 8px; padding: 11px 15px; box-shadow: 0 4px 15px #18312b40; }

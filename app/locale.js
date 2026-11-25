@@ -97,6 +97,7 @@ const messages = {
   nextMonth: ['Next month', 'Наступны месяц', 'Следующий месяц'],
   selectRangeStart: ['Choose the first day of the range.', 'Выберыце першы дзень дыяпазону.', 'Выберите первый день диапазона.'],
   selectRangeEnd: ['Choose the last day of the range.', 'Выберыце апошні дзень дыяпазону.', 'Выберите последний день диапазона.'],
+  inSelectedRange: ['In the selected range', 'У выбраным дыяпазоне', 'В выбранном диапазоне'],
   selectedDates: ['Selected dates', 'Выбраныя даты', 'Выбранные даты'],
   applyDates: ['Apply dates', 'Ужыць даты', 'Применить даты'],
   updates: ['App updates', 'Абнаўленні праграмы', 'Обновления приложения'],

@@ -1,4 +1,4 @@
-function mountCalendar(container, { initial, today, language, t, id, selected, choose, holidays, markedDates }) {
+function mountCalendar(container, { initial, today, language, t, id, selected, choose, holidays, markedDates, rangePosition }) {
   const day = 86400000
   const firstDate = Date.UTC(1000, 0, 1)
   const lastDate = Date.UTC(9999, 11, 31)
@@ -23,6 +23,7 @@ function mountCalendar(container, { initial, today, language, t, id, selected, c
       <button type="button" data-month-step="1" aria-label="${t('nextMonth')}" title="${t('nextMonth')}">›</button>
     </div>
     <span class="visually-hidden" id="${id}-month" aria-live="polite"></span>
+    ${rangePosition ? `<span class="visually-hidden" id="${id}-range">${t('inSelectedRange')}</span>` : ''}
     <table class="calendar" aria-labelledby="${id}-month">
       <thead><tr>${Array.from({ length: 7 }, (_, index) =>
         `<th scope="col">${weekday(new Date(Date.UTC(2024, 0, 7 + weekStart + index)))}</th>`).join('')}</tr></thead>
@@ -44,6 +45,13 @@ function mountCalendar(container, { initial, today, language, t, id, selected, c
       const date = button.dataset.date
       button.setAttribute('aria-pressed', selected(date))
       button.tabIndex = date === active ? 0 : -1
+      if (rangePosition) {
+        const position = rangePosition(date)
+        button.classList.toggle('calendar-in-range', Boolean(position))
+        button.classList.toggle('calendar-range-edge', position === 'edge')
+        if (position) button.setAttribute('aria-describedby', `${id}-range`)
+        else button.removeAttribute('aria-describedby')
+      }
     }
   }
 
@@ -149,6 +157,7 @@ function mountCalendar(container, { initial, today, language, t, id, selected, c
   showMonth()
   return {
     focusDay,
+    showSelection,
     refresh() {
       const focused = body.contains(document.activeElement)
       showMonth()
@@ -218,13 +227,19 @@ function openDatePicker({ title, dates, language, t, today, holidays, describeRa
     if (status.textContent !== summary) status.textContent = summary
   }
 
-  const shared = { today, language, t, holidays }
-  const calendars = ['start', 'end'].map(key => mountCalendar(form.querySelector(`[data-calendar="${key}"]`), {
+  function rangePosition(date) {
+    if (!values.start || !values.end || date < values.start || date > values.end) return
+    return date === values.start || date === values.end ? 'edge' : 'inside'
+  }
+
+  const shared = { today, language, t, holidays, rangePosition }
+  const calendars = ['start', 'end'].map((key, index) => mountCalendar(form.querySelector(`[data-calendar="${key}"]`), {
     ...shared, id: 'calendar-' + key, initial: values[key] || start || today,
     selected: date => values[key] === date,
     choose(date) {
       values[key] = date
       showSummary()
+      calendars[1 - index].showSelection()
     },
   }))
   form.querySelector('[value="cancel"]').addEventListener('click', () => picker.close())
