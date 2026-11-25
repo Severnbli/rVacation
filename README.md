@@ -8,6 +8,8 @@ rVacation is a Windows and Linux desktop app for tracking employee leave and vac
 2. Run the Windows installer. On Linux, make the AppImage executable before opening it. If your distribution lacks FUSE support, use the AppImage's `--appimage-extract-and-run` option to launch it.
 3. Add workers from Overview and set the start date of each worker’s first working year. The Periods page shows recurring years, balance adjustments, templates, and date change history. Groups and day-counting settings can be configured as needed. If you have records in the old shared service, import them before saving anything locally.
 
+Record the employee’s own sick leave from **Leave**. Overlapping annual vacation days return to the balance. Edit the vacation end date to record an extension, or record a separate vacation for days transferred within the same working year.
+
 The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks GitHub for updates at every launch. When an update is ready, choose **Restart and install** in the popup or select **Later** to keep working and install it from Settings.
 
 ## Back up or move local records

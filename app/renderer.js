@@ -1,3 +1,4 @@
+import { interruptsVacation, leaveKinds, movesWorkingYear } from './leave-types.mjs'
 import { isRecordDate, localDate as today, periodOn, periodsFor } from './periods.mjs'
 
 const main = document.querySelector('#main')
@@ -31,7 +32,6 @@ const displayDate = value => dateFormatter(language, 'medium')(new Date(value))
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character])
-const leaveKinds = ['annual', 'social', 'maternity']
 const totalDays = value => value === null ? t('unlimited') : number(value)
 const periodName = period => period.name || t('workingYear').replace('{number}', number(period.year))
 
@@ -171,6 +171,7 @@ function historyDescription(event) {
     case 'startChanged': return direction(displayDate(event.from), displayDate(event.to))
     case 'socialTakenChanged': return `${periodName({ name: event.periodName, year: event.year })} · ${direction(number(event.from), number(event.to))}`
     case 'thresholdChanged': return direction(number(event.from), number(event.to))
+    case 'maternityRuleUpdated': return t('maternityRuleDetail')
     case 'leaveAdded': return leave(event.to)
     case 'leaveDeleted': return leave(event.from)
     case 'leaveEdited': return direction(leave(event.from), leave(event.to))
@@ -180,7 +181,8 @@ function historyDescription(event) {
 function periodHistory(worker) {
   if (!worker) return ''
   const history = worker.periodHistory ?? []
-  const original = history.find(event => event.type === 'startSet' || event.type === 'startImported')?.to
+  const original = history.find(event => event.type === 'startSet' || event.type === 'startImported')?.to ??
+    worker.legacyPeriods?.[0]?.start ?? worker.periodStart
   if (!original) return ''
   const rows = history.slice().reverse().map(event => {
     const label = `<strong>${escape(event.name || t(event.type))}</strong>${event.name ? ` · ${t(event.type)}` : ''}
@@ -227,8 +229,9 @@ function renderVacations(records) {
   const rows = records.vacations.slice().sort((a, b) => b.start.localeCompare(a.start)).map(item => {
     const worker = workers.get(item.workerId)
     const period = balances.get(item.workerId).periods.find(period => period.id === item.periodId)
+    const credit = item.interruptedDays ? `<br><small>${t('interruptedDays').replace('{days}', number(item.interruptedDays))}</small>` : ''
     return `<tr><td><strong>${escape(worker.name)}</strong></td><td>${t(item.kind)}</td><td>${period ? escape(periodName(period)) : t('none')}</td>
-      <td>${displayDate(item.start)}</td><td>${displayDate(item.end)}</td><td>${number(item.days)}</td><td><div class="actions">
+      <td>${displayDate(item.start)}</td><td>${displayDate(item.end)}</td><td class="number">${number(item.days)}${credit}</td><td><div class="actions">
       ${button('edit-vacation', 'edit', item.id, 'small')}${button('delete-vacation', 'delete', item.id, 'small danger')}</div></td></tr>`
   })
   return heading('vacations', button('new-vacation', 'recordVacation', '', 'primary')) +
@@ -523,12 +526,19 @@ function updateLeaveFields(form) {
   periodId.disabled = !pickerVisible
   periodId.required = pickerVisible
   setFormError(form, '')
+  const entries = worker ? snapshot.records.vacations.filter(item =>
+    item.workerId === worker.id && item.id !== form.dataset.id) : []
+  const interrupted = annual && entries.some(item => interruptsVacation(item.kind) &&
+    item.start <= end.value && item.end >= start.value)
+  const help = form.querySelector('[data-leave-help]')
+  help.textContent = annual ? interrupted ? t('interruptedHelp') : '' : t(kind.value + 'Help')
+  help.hidden = !help.textContent
   if (!worker) return
 
   const through = [today(), start.value, end.value].sort().at(-1)
-  const entries = snapshot.records.vacations.filter(item =>
-    item.workerId === worker.id && (item.id !== form.dataset.id || item.kind === 'annual'))
-  const periods = periodsFor(worker, entries, snapshot.records.settings.socialThreshold, through)
+  const previous = snapshot.records.vacations.find(item => item.id === form.dataset.id && item.workerId === worker.id)
+  const scheduled = previous?.kind === 'annual' ? [...entries, previous] : entries
+  const periods = periodsFor(worker, scheduled, snapshot.records.settings.socialThreshold, through)
   if (pickerVisible) {
     const manual = form.dataset.manualPeriod
     const selected = periods.some(period => period.id === manual) ? manual : periodOn(periods, start.value)?.id ?? ''
@@ -538,7 +548,7 @@ function updateLeaveFields(form) {
     if (!periods.length) setFormError(form, 'workerNeedsPeriod')
     else if (!selected) setFormError(form, 'noPeriodForStart')
   }
-  if (!annual && !periodOn(periods, start.value)) setFormError(form, 'leaveOutsidePeriod')
+  if (movesWorkingYear(kind.value) && !periodOn(periods, start.value)) setFormError(form, 'leaveOutsidePeriod')
 }
 
 function vacationEdit(id, workerId) {
@@ -549,6 +559,7 @@ function vacationEdit(id, workerId) {
     `<label>${t('worker')}<select name="workerId" required>${options(records.workers.slice().sort((a, b) => a.name.localeCompare(b.name, language)), item?.workerId ?? workerId, 'chooseWorker')}</select></label>
     <label>${t('leaveKind')}<select name="kind">${options(leaveKinds.map(id => ({ id, name: t(id) })), item?.kind ?? 'annual')}</select></label>
     ${dateRange(item ?? { start: today(), end: today() })}
+    <small data-leave-help hidden></small>
     <div class="period-choice"><label>${t('period')}<select name="periodId"></select></label>
     <small>${t('periodHelp')}</small></div>`, id)
   const form = dialog.querySelector('form')

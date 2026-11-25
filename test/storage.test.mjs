@@ -90,7 +90,7 @@ test('the old service database migrates in place with its revision and recorded 
   }
   const database = new DatabaseSync(file)
   try {
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 2)
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 3)
   } finally {
     database.close()
   }
@@ -177,6 +177,32 @@ test('migration returns a configured holiday that was charged at the full rate',
     const { vacations } = records.read().records
     assert.equal(vacations[0].days, 2)
     assert.equal(vacations[0].daysBeforeHolidays, 3)
+  } finally {
+    records.close()
+  }
+})
+
+test('schema two maternity dates are preserved and the working-year rule correction is recorded', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  const maternity = { id: 'maternity', workerId: 'worker', kind: 'maternity', start: '2026-02-01', end: '2026-02-03', days: 3 }
+  const oldRecords = { ...initialRecords(), workers: [{ id: 'worker', name: 'Worker', groups: [], limit: null,
+    periodStart: '2025-09-01' }], vacations: [maternity] }
+  writeLegacy(file, oldRecords)
+  const source = new DatabaseSync(file)
+  try {
+    source.exec('PRAGMA user_version = 2')
+  } finally {
+    source.close()
+  }
+  const records = openRecords(file)
+  try {
+    const saved = records.read()
+    assert.deepEqual(saved.records.vacations, [maternity])
+    assert.equal(saved.balances[0].periods[0].end, '2026-08-31')
+    const event = saved.records.workers[0].periodHistory[0]
+    assert.equal(event.type, 'maternityRuleUpdated')
+    assert.equal(event.changes[0].before.end, '2026-09-03')
+    assert.equal(event.changes[0].after.end, '2026-08-31')
   } finally {
     records.close()
   }

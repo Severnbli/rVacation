@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { applyChange, initialRecords, RecordError, summarize, upgradeRecords } from './domain.mjs'
+import { applyChange, initialRecords, RecordError, summarize, upgradePeriodRules, upgradeRecords } from './domain.mjs'
 
 function snapshot(row) {
   const records = JSON.parse(row.contents)
@@ -65,6 +65,11 @@ const migrations = [
   database => {
     const row = database.prepare('SELECT contents FROM records WHERE id = 1').get()
     const records = upgradeRecords(JSON.parse(row.contents))
+    database.prepare('UPDATE records SET contents = ? WHERE id = 1').run(JSON.stringify(records))
+  },
+  database => {
+    const row = database.prepare('SELECT contents FROM records WHERE id = 1').get()
+    const records = upgradePeriodRules(JSON.parse(row.contents))
     database.prepare('UPDATE records SET contents = ? WHERE id = 1').run(JSON.stringify(records))
   },
 ]

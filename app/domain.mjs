@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { interruptsVacation, leaveKinds, movesWorkingYear } from './leave-types.mjs'
 import { recordPeriodChange } from './period-history.mjs'
 import { isRecordDate, nextDay, periodOn, periodsFor } from './periods.mjs'
 
@@ -138,6 +139,21 @@ function leaveByWorker(vacations) {
   return result
 }
 
+export function upgradePeriodRules(records) {
+  if (!records.vacations.some(entry => entry.kind === 'maternity')) return records
+  const byWorker = leaveByWorker(records.vacations)
+  const threshold = records.settings.socialThreshold
+  for (const worker of records.workers) {
+    const entries = byWorker.get(worker.id) ?? []
+    if (!entries.some(entry => entry.kind === 'maternity')) continue
+    const oldEntries = entries.map(entry => entry.kind === 'maternity' ? { ...entry, kind: 'childcare' } : entry)
+    const before = periodsFor(worker, oldEntries, threshold, undefined, true)
+    const after = periodsFor(worker, entries, threshold, undefined, true)
+    recordPeriodChange(worker, { type: 'maternityRuleUpdated' }, before, after, true)
+  }
+  return records
+}
+
 export function summarize(records) {
   const leave = leaveByWorker(records.vacations)
   return records.workers.map(worker => {
@@ -217,7 +233,7 @@ function checkSchedule(worker, entries, threshold) {
   requireThat(Object.keys(worker.periodAdjustments ?? {}).every(id => periodIds.has(id)), 'periodOutsideCalendar')
   for (const entry of entries) {
     if (entry.kind === 'annual') requireThat(periodIds.has(entry.periodId), 'periodOutsideCalendar')
-    else requireThat(coversLeave(periods, entry), 'leaveOutsidePeriod')
+    else if (movesWorkingYear(entry.kind)) requireThat(coversLeave(periods, entry), 'leaveOutsidePeriod')
   }
   return periods
 }
@@ -244,16 +260,38 @@ function leaveDates(entry) {
   return { kind: entry.kind, start: entry.start, end: entry.end }
 }
 
-function isSpecial(entry) {
-  return entry && entry.kind !== 'annual'
-}
-
 function auditLeave(worker, previous, entry, before, after, threshold) {
-  if (!isSpecial(previous) && !isSpecial(entry)) return
-  const from = isSpecial(previous) ? leaveDates(previous) : null
-  const to = isSpecial(entry) ? leaveDates(entry) : null
+  const from = movesWorkingYear(previous?.kind) ? leaveDates(previous) : null
+  const to = movesWorkingYear(entry?.kind) ? leaveDates(entry) : null
+  if (!from && !to) return
   const type = from ? to ? 'leaveEdited' : 'leaveDeleted' : 'leaveAdded'
   recordPeriodChange(worker, { type, from, to }, periodsFor(worker, before, threshold, undefined, true), after, true)
+}
+
+function overlapAllowed(firstKind, secondKind) {
+  return firstKind === 'annual' && interruptsVacation(secondKind) ||
+    secondKind === 'annual' && interruptsVacation(firstKind)
+}
+
+function annualCharge(vacation, holidays, interruptions) {
+  const { start, end, dayRule } = vacation
+  const afterHolidays = Math.max(0, vacation.daysBeforeHolidays - holidayCredit(start, end, dayRule, holidays))
+  let credits = 0
+  for (const period of interruptions) {
+    const overlapStart = period.start > start ? period.start : start
+    const overlapEnd = period.end < end ? period.end : end
+    if (overlapStart <= overlapEnd) {
+      credits += countDays(overlapStart, overlapEnd, { ...dayRule, holidays })
+    }
+  }
+  const interruptedDays = Math.min(afterHolidays, credits)
+  return { ...vacation, interruptedDays, days: afterHolidays - interruptedDays }
+}
+
+function updateAnnualCharges(entries, holidays) {
+  const interruptions = leaveByWorker(entries.filter(entry => interruptsVacation(entry.kind)))
+  return entries.map(entry => entry.kind === 'annual'
+    ? annualCharge(entry, holidays, interruptions.get(entry.workerId) ?? []) : entry)
 }
 
 function saveVacation(records, id, value) {
@@ -261,29 +299,34 @@ function saveVacation(records, id, value) {
   const previous = id ? existing(records.vacations, id) : null
   const previousWorker = previous && previous.workerId !== worker.id ? activeWorker(records, previous.workerId) : null
   const kind = value.kind
-  requireThat(['annual', 'social', 'maternity'].includes(kind), 'invalidRequest')
+  requireThat(leaveKinds.includes(kind), 'invalidRequest')
   const [start, end] = range(value.start, value.end)
   const entries = workerLeave(records, worker.id)
   const others = entries.filter(entry => entry.id !== id)
-  requireThat(!others.some(entry => entry.start <= value.end && entry.end >= value.start), 'vacationOverlap')
-  const threshold = records.settings.socialThreshold
-  const details = { workerId: worker.id, kind, start: value.start, end: value.end }
+  requireThat(!others.some(entry => entry.start <= value.end && entry.end >= value.start &&
+    !overlapAllowed(kind, entry.kind)), 'vacationOverlap')
+  const { socialThreshold: threshold, holidays } = records.settings
+  let details = { workerId: worker.id, kind, start: value.start, end: value.end }
 
   if (kind === 'annual') {
-    const periods = periodsFor(worker, isSpecial(previous) ? others : entries, threshold, value.end)
+    const priorInterruption = !previousWorker && interruptsVacation(previous?.kind)
+    const availableEntries = priorInterruption ? updateAnnualCharges(others, holidays) :
+      movesWorkingYear(previous?.kind) ? others : entries
+    const periods = periodsFor(worker, availableEntries, threshold, value.end)
     const period = existing(periods, value.periodId)
     const unchanged = previous?.kind === kind && previous.start === value.start && previous.end === value.end
     const dayRule = unchanged ? previous.dayRule : vacationRule(records.settings, value.start, value.end)
     const daysBeforeHolidays = unchanged ? previous.daysBeforeHolidays : chargeBeforeHolidays(value.start, value.end, dayRule)
-    const days = unchanged ? previous.days : Math.max(0, daysBeforeHolidays -
-      holidayCredit(value.start, value.end, dayRule, records.settings.holidays))
+    const interruptions = others.filter(entry => interruptsVacation(entry.kind))
+    details = annualCharge({ ...details, periodId: period.id, dayRule, daysBeforeHolidays }, holidays, interruptions)
     const max = effectiveLimit(allowance(worker, records.groups).max, period.vacationCeiling)
     const sameBalance = previous?.kind === kind && previous.workerId === worker.id && previous.periodId === period.id
     const used = period.used - (sameBalance ? previous.days : 0)
-    requireThat(max === null || used + days <= max || sameBalance && days <= previous.days, 'allowanceExceeded')
-    Object.assign(details, { periodId: period.id, days, dayRule, daysBeforeHolidays })
+    requireThat(max === null || used + details.days <= max || sameBalance && details.days <= previous.days, 'allowanceExceeded')
   } else {
-    requireThat(periodOn(periodsFor(worker, others, threshold, value.start), value.start), 'leaveOutsidePeriod')
+    if (movesWorkingYear(kind)) {
+      requireThat(periodOn(periodsFor(worker, others, threshold, value.start), value.start), 'leaveOutsidePeriod')
+    }
     details.days = (end - start) / DAY + 1
   }
 
@@ -296,6 +339,9 @@ function saveVacation(records, id, value) {
   auditLeave(worker, previousWorker ? null : previous, details, entries, after, threshold)
   if (previous) records.vacations[records.vacations.indexOf(previous)] = { id, ...details }
   else save(records.vacations, null, details)
+  if (interruptsVacation(kind) || interruptsVacation(previous?.kind)) {
+    records.vacations = updateAnnualCharges(records.vacations, holidays)
+  }
 }
 
 export function applyChange(records, change) {
@@ -371,7 +417,8 @@ export function applyChange(records, change) {
       const threshold = records.settings.socialThreshold
       const after = checkSchedule(worker, entries.filter(entry => entry.id !== id), threshold)
       auditLeave(worker, entry, null, entries, after, threshold)
-      records.vacations = records.vacations.filter(entry => entry.id !== id)
+      const remaining = records.vacations.filter(entry => entry.id !== id)
+      records.vacations = interruptsVacation(entry.kind) ? updateAnnualCharges(remaining, records.settings.holidays) : remaining
       break
     }
     case 'settings': {
@@ -390,9 +437,7 @@ export function applyChange(records, change) {
           recordPeriodChange(worker, { type: 'thresholdChanged', from: previous, to: socialThreshold }, before, after, true)
         }
       }
-      records.vacations = records.vacations.map(entry => entry.kind === 'annual' ? {
-        ...entry, days: Math.max(0, entry.daysBeforeHolidays - holidayCredit(entry.start, entry.end, entry.dayRule, holidays)),
-      } : entry)
+      records.vacations = updateAnnualCharges(records.vacations, holidays)
       records.settings = { counting: value.counting, holidays, deductible, socialThreshold }
       break
     }

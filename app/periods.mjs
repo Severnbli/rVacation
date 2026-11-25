@@ -1,3 +1,5 @@
+import { movesWorkingYear } from './leave-types.mjs'
+
 const DAY = 86_400_000
 const LAST_DATE = Date.UTC(9999, 11, 31)
 
@@ -33,7 +35,7 @@ function leaveOffset(start, baseEnd, leave, index, threshold, socialTaken) {
     const first = Math.max(start, entry.start)
     if (entry.end < first) continue
     const total = (entry.end - first) / DAY + 1
-    if (entry.kind === 'maternity') {
+    if (entry.kind === 'childcare') {
       end = Math.min(LAST_DATE, end + total * DAY)
     } else {
       const available = Math.max(0, threshold - socialDays)
@@ -65,7 +67,7 @@ export function periodsFor(worker, entries, threshold, through = localDate(), in
     if (entry.kind === 'annual') {
       used.set(entry.periodId, (used.get(entry.periodId) ?? 0) + entry.days)
       if (entry.periodId.startsWith('year-')) lastYear = Math.max(lastYear, Number(entry.periodId.slice(5)))
-    } else {
+    } else if (movesWorkingYear(entry.kind)) {
       leave.push({ kind: entry.kind, start: Date.parse(entry.start), end: Date.parse(entry.end) })
     }
   }
