@@ -22,7 +22,7 @@ The database lives outside the installation directory. When an update changes th
 
 Run `npm ci` from the repository root with Node.js 24, then run `npm start` to open the app. Run `npm test` for the domain, local storage, and release versioning checks. Run `npm run build -- --x64` on each target operating system to create its installer under `dist/`.
 
-CI checks `dev` and pull requests into `main` on both platforms. After merging to `main`, run the **Release** workflow. Leave the series field blank for a patch release or enter a newer `major.minor` to start at patch zero. The first blank run publishes `0.1.0`.
+CI runs the test suite on `dev` and on pull requests into `main`. After merging to `main`, run the **Release** workflow to package Windows and Linux installers. Leave the series field blank for a patch release or enter a newer `major.minor` to start at patch zero. The first blank run publishes `0.1.0`.
 
 - [Project plan](docs/project-plan.md) describes vacation rules and remaining decisions.
 - [Repository guidance](AGENTS.md) describes the development workflow.

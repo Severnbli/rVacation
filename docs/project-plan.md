@@ -36,7 +36,7 @@ Ship English (`en`), Belarusian (`be`), and Russian (`ru`) from the first releas
 
 ## GitHub CI and releases
 
-- Develop features on `dev` and merge into `main` through a pull request. GitHub Actions tests and packages both platforms on changes to `dev` and on pull requests into `main`.
+- Develop features on `dev` and merge into `main` through a pull request. GitHub Actions runs the Node test suite once on Ubuntu for changes to `dev` and pull requests into `main`. The Release workflow packages both platforms.
 - The manual Release workflow publishes the Windows NSIS installer, Linux AppImage, and updater metadata through GitHub Releases from `main`. The desktop app checks for updates at every launch and shows a popup once an update has downloaded. Users can restart and install from the popup or defer installation and return to Settings later. Desktop updates retain the local database.
 - Give the release workflow an optional `major.minor` input. With no input, increment the patch of the latest published version. With a newer major or minor selection, release the selected `major.minor` at patch `0`.
 
