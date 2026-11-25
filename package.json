@@ -1,7 +1,7 @@
 {
   "name": "rvacation",
   "version": "0.1.0",
-  "description": "Vacation records and allowances for secretaries",
+  "description": "Track employee leave and balances under the Labour Code of the Republic of Belarus",
   "author": "rVacation contributors",
   "license": "GPL-3.0-only",
   "repository": "github:Severnbli/rVacation",

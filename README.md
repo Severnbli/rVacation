@@ -1,12 +1,14 @@
 # rVacation
 
-rVacation is a Windows and Linux desktop app for tracking worker vacations and balances. The app ships in English, Belarusian, and Russian. Each OS user account has its own local SQLite database. Recording and viewing vacations works offline.
+rVacation is a Windows and Linux desktop app for tracking employee leave and vacation balances under the [Labour Code of the Republic of Belarus](https://pravo.by/document/?guid=3871&p0=HK9900296). The app ships in English, Belarusian, and Russian. Each OS user account has its own local SQLite database. Recording and viewing vacations works offline.
 
 ## Install and start
 
 1. Download the Windows x64 installer or Linux x86-64 AppImage from [GitHub Releases](https://github.com/Severnbli/rVacation/releases/latest).
 2. Run the Windows installer. On Linux, make the AppImage executable before opening it. If your distribution lacks FUSE support, use the AppImage's `--appimage-extract-and-run` option to launch it.
-3. Create a period and add workers from Overview. Groups and day-counting settings can be configured as needed. If you have records in the old shared service, import them before saving anything locally.
+3. Add workers from Overview and set the start date of each worker’s first working year. The Periods page shows recurring years, balance adjustments, templates, and date change history. Groups and day-counting settings can be configured as needed. If you have records in the old shared service, import them before saving anything locally.
+
+Record the employee’s own sick leave from **Leave**. Overlapping annual vacation days return to the balance. Edit the vacation end date to record an extension, or record a separate vacation for days transferred within the same working year.
 
 The Windows installer is unsigned. Windows may ask you to confirm that you trust the download. The app checks GitHub for updates at every launch. When an update is ready, choose **Restart and install** in the popup or select **Later** to keep working and install it from Settings.
 
@@ -20,7 +22,7 @@ The database lives outside the installation directory. When an update changes th
 
 Run `npm ci` from the repository root with Node.js 24, then run `npm start` to open the app. Run `npm test` for the domain, local storage, and release versioning checks. Run `npm run build -- --x64` on each target operating system to create its installer under `dist/`.
 
-CI checks `dev` and pull requests into `main` on both platforms. After merging to `main`, run the **Release** workflow. Leave the series field blank for a patch release or enter a newer `major.minor` to start at patch zero. The first blank run publishes `0.1.0`.
+CI runs the test suite on `dev` and on pull requests into `main`. After merging to `main`, run the **Release** workflow to package Windows and Linux installers. Leave the series field blank for a patch release or enter a newer `major.minor` to start at patch zero. The first blank run publishes `0.1.0`.
 
 - [Project plan](docs/project-plan.md) describes vacation rules and remaining decisions.
 - [Repository guidance](AGENTS.md) describes the development workflow.
