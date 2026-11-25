@@ -9,7 +9,7 @@ export class RecordError extends Error {}
 
 export function initialRecords() {
   return { workers: [], groups: [], periodTemplates: [], vacations: [],
-    settings: { counting: 'calendar', holidays: [], deductible: [], socialThreshold: DEFAULT_SOCIAL_THRESHOLD } }
+    settings: { counting: 'calendar', holidays: [], socialThreshold: DEFAULT_SOCIAL_THRESHOLD } }
 }
 
 function requireThat(condition, code) {
@@ -60,24 +60,21 @@ function chargeBeforeHolidays(start, end, rule) {
   for (let offset = 0; offset < total % 7; offset++) {
     days += Number(weekday(first + offset * DAY))
   }
-  for (const day of new Set(rule.deductible)) {
-    if (day >= start && day <= end && !weekday(day)) days++
-  }
   return days
 }
 
 function holidayCredit(start, end, rule, holidays) {
-  const marked = new Set(rule.deductible)
   return [...new Set(holidays)].filter(day => day >= start && day <= end &&
-    (rule.counting === 'calendar' || weekday(day) || marked.has(day))).length
+    (rule.counting === 'calendar' || weekday(day))).length
 }
 
 export function countDays(start, end, settings) {
   return chargeBeforeHolidays(start, end, settings) - holidayCredit(start, end, settings, settings.holidays)
 }
 
-function vacationRule(settings, start, end) {
-  return { counting: settings.counting, deductible: settings.deductible.filter(day => day >= start && day <= end) }
+function legacyExtraWeekends(start, end, rule) {
+  if (rule.counting === 'calendar') return []
+  return [...new Set(rule.deductible)].filter(day => day >= start && day <= end && !weekday(day))
 }
 
 export function upgradeRecords(records) {
@@ -106,10 +103,12 @@ export function upgradeRecords(records) {
       return updated
     }),
     vacations: rest.vacations.map(vacation => {
-      const dayRule = vacationRule(settings, vacation.start, vacation.end)
-      const credit = holidayCredit(vacation.start, vacation.end, dayRule, settings.holidays)
+      const deductible = legacyExtraWeekends(vacation.start, vacation.end, settings)
+      const dayRule = { counting: settings.counting, deductible }
+      const credit = holidayCredit(vacation.start, vacation.end, dayRule, settings.holidays) +
+        deductible.filter(day => settings.holidays.includes(day)).length
       const matchesFullCharge = credit > 0 && isRecordDate(vacation.start) && isRecordDate(vacation.end) &&
-        vacation.start <= vacation.end && vacation.days === chargeBeforeHolidays(vacation.start, vacation.end, dayRule)
+        vacation.start <= vacation.end && vacation.days === chargeBeforeHolidays(vacation.start, vacation.end, dayRule) + deductible.length
       const days = matchesFullCharge ? vacation.days - credit : vacation.days
       return { ...vacation, kind: 'annual', dayRule, days, daysBeforeHolidays: days + credit }
     }),
@@ -293,6 +292,30 @@ function updateAnnualCharges(entries, holidays) {
     ? annualCharge(entry, holidays, interruptions.get(entry.workerId) ?? []) : entry)
 }
 
+export function removeLegacyExtraDates(records) {
+  delete records.settings.deductible
+  const holidays = records.settings.holidays
+  const interruptions = leaveByWorker(records.vacations.filter(entry => interruptsVacation(entry.kind)))
+  records.vacations = records.vacations.map(entry => {
+    if (entry.kind !== 'annual' || !Object.hasOwn(entry.dayRule, 'deductible')) return entry
+    const { start, end } = entry
+    const dayRule = { counting: entry.dayRule.counting }
+    const vacation = { ...entry, dayRule }
+    const extra = legacyExtraWeekends(start, end, entry.dayRule)
+    if (!extra.length) return vacation
+
+    const leave = interruptions.get(entry.workerId) ?? []
+    const fullCharge = isRecordDate(start) && isRecordDate(end) && start <= end &&
+      entry.daysBeforeHolidays === chargeBeforeHolidays(start, end, dayRule) + extra.length
+    // Preserve custom charges from the old service by removing only the credits tied to extra dates.
+    const removed = fullCharge ? extra.length : extra.filter(day =>
+      holidays.includes(day) || leave.some(period => period.start <= day && day <= period.end)).length
+    vacation.daysBeforeHolidays = Math.max(0, entry.daysBeforeHolidays - removed)
+    return annualCharge(vacation, holidays, leave)
+  })
+  return records
+}
+
 export function annualVacationPeriods(records, worker, previous, through) {
   const { holidays, socialThreshold } = records.settings
   let entries = workerLeave(records, worker.id)
@@ -308,7 +331,7 @@ export function annualVacationPeriods(records, worker, previous, through) {
 export function annualVacationCharge(records, { worker, previous, period, start, end }) {
   const { settings } = records
   const unchanged = previous?.kind === 'annual' && previous.start === start && previous.end === end
-  const dayRule = unchanged ? previous.dayRule : vacationRule(settings, start, end)
+  const dayRule = unchanged ? previous.dayRule : { counting: settings.counting }
   const daysBeforeHolidays = unchanged ? previous.daysBeforeHolidays : chargeBeforeHolidays(start, end, dayRule)
   const interruptions = workerLeave(records, worker.id).filter(entry => entry.id !== previous?.id && interruptsVacation(entry.kind))
   const vacation = annualCharge({
@@ -447,7 +470,6 @@ export function applyChange(records, change) {
       requireThat(['calendar', 'weekdays', 'working'].includes(value.counting), 'invalidRequest')
       const socialThreshold = daysValue(value.socialThreshold)
       const holidays = dateList(value.holidays)
-      const deductible = dateList(value.deductible)
       if (socialThreshold !== records.settings.socialThreshold) {
         const leave = leaveByWorker(records.vacations)
         const previous = records.settings.socialThreshold
@@ -460,7 +482,7 @@ export function applyChange(records, change) {
         }
       }
       records.vacations = updateAnnualCharges(records.vacations, holidays)
-      records.settings = { counting: value.counting, holidays, deductible, socialThreshold }
+      records.settings = { counting: value.counting, holidays, socialThreshold }
       break
     }
     default:

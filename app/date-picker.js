@@ -158,11 +158,6 @@ function mountCalendar(container, { initial, today, language, t, id, selected, c
   return {
     focusDay,
     showSelection,
-    refresh() {
-      const focused = body.contains(document.activeElement)
-      showMonth()
-      if (focused) focusDay()
-    },
     showDate(date) {
       cursor = boundedDate(Date.parse(date))
       showMonth()

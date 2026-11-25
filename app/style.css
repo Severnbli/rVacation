@@ -105,8 +105,7 @@ legend { padding: 0 5px; }
 .range-icon { width: 20px; height: 19px; border: solid var(--primary); border-width: 5px 2px 2px; border-radius: 4px; }
 .range-icon::after { content: ""; display: block; width: 7px; height: 2px; margin: 4px auto; background: var(--primary); }
 .period-fields, .period-choice:not([hidden]) { display: grid; gap: 9px; }
-.settings-calendars { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px; align-items: start; }
-.settings-calendar { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.settings-calendar { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; width: min(100%, 420px); }
 .settings-calendar h3 { font-size: 1rem; margin: 0; }
 .settings-date-count, .holiday-import-status { font-size: .87rem; }
 .holiday-import-status:empty { display: none; }

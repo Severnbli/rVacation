@@ -246,40 +246,9 @@ function recordsStatus() {
     <div class="actions">${button('retry-records', 'retry')}</div>`
 }
 
-function settingsCalendar(name, controls) {
-  return `<section class="settings-calendar" data-date-field="${name}" aria-labelledby="${name}-label">
-    <h3 id="${name}-label">${t(name)}</h3>
-    <p class="settings-date-count" role="status"></p>
-    <div data-calendar-host></div>
-    ${controls}
-    </section>`
-}
-
 function mostRelevantDate(dates, current) {
   const sorted = [...dates].sort()
   return sorted.find(date => date >= current) ?? sorted.at(-1) ?? current
-}
-
-function mountSettingsCalendar(form, name, dates, { holidays, onChange } = {}) {
-  const field = form.querySelector(`[data-date-field="${name}"]`)
-  const count = field.querySelector('.settings-date-count')
-  const current = today()
-  const updateCount = () => { count.textContent = `${t('selectedDates')} (${number(dates.size)})` }
-  const calendar = mountCalendar(field.querySelector('[data-calendar-host]'), {
-    id: `settings-${name}`, initial: mostRelevantDate(dates, current), today: current, language, t, holidays,
-    markedDates: dates, selected: date => dates.has(date),
-    choose(date) {
-      if (form.dataset.saving) return
-      if (!dates.delete(date)) dates.add(date)
-      updateCount()
-      onChange?.()
-    },
-  })
-  form.addEventListener('formdata', ({ formData }) => {
-    for (const date of dates) formData.append(name, date)
-  })
-  updateCount()
-  return { ...calendar, updateCount }
 }
 
 async function holidayFileDates(file) {
@@ -298,16 +267,24 @@ async function holidayFileDates(file) {
   return result
 }
 
-function mountSettingsCalendars(form, settings) {
+function mountHolidaySettings(form, settings) {
   const holidays = new Set(settings.holidays)
-  const extra = mountSettingsCalendar(form, 'deductible', new Set(settings.deductible), { holidays })
-  const legend = form.querySelector('[data-holiday-legend]')
-  function showHolidays() {
-    legend.hidden = !holidays.size
-    extra.refresh()
-  }
-  const calendar = mountSettingsCalendar(form, 'holidays', holidays, { onChange: showHolidays })
-  legend.hidden = !holidays.size
+  const count = form.querySelector('.settings-date-count')
+  const current = today()
+  const updateCount = () => { count.textContent = `${t('selectedDates')} (${number(holidays.size)})` }
+  const calendar = mountCalendar(form.querySelector('[data-calendar-host]'), {
+    id: 'settings-holidays', initial: mostRelevantDate(holidays, current), today: current, language, t,
+    markedDates: holidays, selected: date => holidays.has(date),
+    choose(date) {
+      if (form.dataset.saving) return
+      if (!holidays.delete(date)) holidays.add(date)
+      updateCount()
+    },
+  })
+  form.addEventListener('formdata', ({ formData }) => {
+    for (const date of holidays) formData.append('holidays', date)
+  })
+  updateCount()
 
   const input = form.querySelector('[data-holiday-file]')
   const importButton = form.querySelector('[data-action="import-holidays"]')
@@ -343,8 +320,7 @@ function mountSettingsCalendars(form, settings) {
       }
       for (const date of imported) holidays.add(date)
       calendar.showDate(mostRelevantDate(imported, today()))
-      calendar.updateCount()
-      showHolidays()
+      updateCount()
       status.textContent = t('holidayDatesImported')
     } finally {
       delete form.dataset.importingDates
@@ -353,14 +329,19 @@ function mountSettingsCalendars(form, settings) {
   })
 }
 
-function holidayControls() {
-  return `<div class="actions">
+function holidaySettings() {
+  return `<section class="settings-calendar" aria-labelledby="holidays-label">
+    <h3 id="holidays-label">${t('holidays')}</h3>
+    <p class="settings-date-count" role="status"></p>
+    <div data-calendar-host></div>
+    <div class="actions">
     <button type="button" data-action="import-holidays" aria-describedby="holiday-file-format">${t('importHolidayDates')}</button>
     <input type="file" accept=".txt,text/plain" multiple data-holiday-file hidden>
     </div>
     <small id="holiday-file-format">${t('holidayFileFormat')}</small>
     <p class="holiday-import-status" data-holiday-import-status role="status"></p>
-    <small>${t('holidayHelp')}</small>`
+    <small>${t('holidayHelp')}</small>
+    </section>`
 }
 
 function settings() {
@@ -376,10 +357,7 @@ function settings() {
     ${current ? `<section class="panel"><form class="panel-body" data-form="settings">
     <h2>${t('dayCounting')}</h2><p>${t('countingHelp')}</p>
     <label>${t('countRule')}<select name="counting">${options(['calendar', 'weekdays'].map(id => ({ id, name: t(id) })), current.counting === 'working' ? 'weekdays' : current.counting)}</select></label>
-    <div class="settings-calendars">
-      ${settingsCalendar('holidays', holidayControls())}
-      ${settingsCalendar('deductible', `<p class="calendar-legend" data-holiday-legend hidden>${t('publicHoliday')}</p>`)}
-    </div>
+    ${holidaySettings()}
     <h2>${t('periodRules')}</h2>
     ${field('socialThreshold', 'socialThreshold', current.socialThreshold, 'number', 'required min="0" step="1"')}
     <small>${t('socialThresholdHelp')}</small>
@@ -422,7 +400,7 @@ function render() {
   footer.innerHTML = `<label>${t('language')}<select id="language">${options(Object.entries(localeNames).map(([id, name]) => ({ id, name })), language)}</select></label>`
   if (page === 'settings') {
     main.innerHTML = settings()
-    if (snapshot) mountSettingsCalendars(main.querySelector('[data-form="settings"]'), snapshot.records.settings)
+    if (snapshot) mountHolidaySettings(main.querySelector('[data-form="settings"]'), snapshot.records.settings)
     renderUpdate()
   } else if (!snapshot) {
     main.innerHTML = heading(page) + `<section class="panel"><div class="panel-body">${recordsStatus()}</div></section>`
@@ -709,7 +687,6 @@ async function submitForm(event) {
     if (type === 'settings') {
       value.socialThreshold = Number(value.socialThreshold)
       value.holidays = data.getAll('holidays')
-      value.deductible = data.getAll('deductible')
     }
     if (type === 'import') {
       value.limit = null

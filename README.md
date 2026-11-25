@@ -10,7 +10,7 @@ rVacation is a Windows and Linux desktop app for tracking employee leave and vac
 
 Record the employee’s own sick leave from **Leave**. Overlapping annual vacation days return to the balance. Edit the vacation end date to record an extension, or record a separate vacation for days transferred within the same working year.
 
-In **Settings → Vacation day counting**, click a date in either calendar to add or remove it. To load public holidays, choose **Import holidays**, select one or more UTF-8 text files, then save the settings. Use one `YYYY-MM-DD` date per line. Blank lines and text after `#` are ignored.
+In **Settings → Vacation day counting**, click a date in the holiday calendar to add or remove it. To load public holidays, choose **Import holidays**, select one or more UTF-8 text files, then save the settings. Use one `YYYY-MM-DD` date per line. Blank lines and text after `#` are ignored.
 
 Belarus public holiday files are available for [2026](holidays/belarus-2026.txt) and [2027](holidays/belarus-2027.txt). The files list non-working public holidays under Presidential Decree No. 157. They exclude dates that are days off solely because a working day was moved.
 
