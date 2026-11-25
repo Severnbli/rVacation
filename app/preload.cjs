@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('desktop', {
   importDatabase: () => ipcRenderer.invoke('records:import'),
   openDataFolder: () => ipcRenderer.invoke('records:folder'),
   openWorkers: () => ipcRenderer.invoke('workers:file'),
+  listHolidayFiles: () => ipcRenderer.invoke('holidays:list'),
+  readHolidayFile: name => ipcRenderer.invoke('holidays:read', name),
   openRepository: () => ipcRenderer.invoke('app:repository'),
   getUpdate: () => ipcRenderer.invoke('update:get'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
