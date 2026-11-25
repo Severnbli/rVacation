@@ -118,7 +118,17 @@ legend { padding: 0 5px; }
 .calendar-pair > section { padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
 .calendar-pair h3 { font-size: 1rem; margin: 0; }
 .calendar-pair p { margin-bottom: 8px; }
-.calendar-message { min-height: 1.55em; }
+.calendar-title { display: flex; justify-content: space-between; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+.calendar-legend { display: flex; align-items: center; gap: 6px; font-size: .87rem; color: #794010; }
+.calendar-feedback { display: grid; gap: 5px; }
+.calendar-message:empty, .calendar-feedback:not(:has(.calendar-summary:not([hidden]), .calendar-message:not(:empty))) { display: none; }
+.calendar-summary:not([hidden]) {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 15px;
+  margin: 0; padding: 8px 12px; background: #eaf2ee; border-radius: 8px; overflow-wrap: anywhere;
+}
+.calendar-summary dt { font-size: .87rem; color: var(--muted); }
+.calendar-summary dd { margin: 0; font-size: 1.2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.calendar-summary small { display: block; font-size: .8rem; font-weight: 400; }
 .calendar-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: center; }
 .calendar-header button { font-size: 1.4rem; line-height: 1; min-width: 39px; padding: 5px; }
 .calendar-month-fields { display: grid; grid-template-columns: minmax(0, 1fr) 5.4rem; gap: 7px; min-width: 0; flex: 1; }
@@ -129,6 +139,9 @@ legend { padding: 0 5px; }
 .calendar td button { width: 100%; min-height: 34px; padding: 3px; border-color: transparent; }
 .calendar td button:hover { border-color: var(--control); }
 .calendar td button[aria-current="date"] { border-color: var(--primary); }
+.calendar td button.calendar-holiday { position: relative; padding-bottom: 8px; background: #f8e9d6; color: #794010; }
+.calendar td button.calendar-holiday::after, .calendar-legend::before { content: ""; border: 2px solid currentColor; border-radius: 50%; }
+.calendar td button.calendar-holiday::after { position: absolute; inset-block-end: 4px; inset-inline-start: calc(50% - 2px); }
 .calendar td button[aria-pressed="true"] { background: var(--primary); color: white; }
 .calendar td button.calendar-range-start { box-shadow: inset 0 0 0 2px #378567; border-color: #92dfbf; }
 #notice:empty { display: none; }
@@ -164,5 +177,7 @@ legend { padding: 0 5px; }
   .calendar-pair { gap: 9px; }
   .calendar-pair > section { padding: 8px; }
   .calendar-pair p { margin-bottom: 6px; }
-  .calendar td button { min-height: 30px; }
+  #date-picker .calendar-header > *, #date-picker .calendar-month-fields > * { min-height: 34px; }
+  #date-picker .calendar-month-fields > * { padding-block: 5px; }
+  #date-picker .calendar td button { min-height: 28px; }
 }

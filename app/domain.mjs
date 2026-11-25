@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto'
 import { interruptsVacation, leaveKinds, movesWorkingYear } from './leave-types.mjs'
 import { recordPeriodChange } from './period-history.mjs'
-import { isRecordDate, nextDay, periodOn, periodsFor } from './periods.mjs'
+import { isRecordDate, localDate, nextDay, periodOn, periodsFor } from './periods.mjs'
 
 const DAY = 86_400_000
 const DEFAULT_SOCIAL_THRESHOLD = 14
@@ -180,7 +179,7 @@ function activeWorker(records, id) {
 
 function save(items, id, details) {
   if (id) Object.assign(existing(items, id), details)
-  else items.push({ id: randomUUID(), ...details })
+  else items.push({ id: crypto.randomUUID(), ...details })
 }
 
 function distinctName(items, name, id) {
@@ -294,6 +293,37 @@ function updateAnnualCharges(entries, holidays) {
     ? annualCharge(entry, holidays, interruptions.get(entry.workerId) ?? []) : entry)
 }
 
+export function annualVacationPeriods(records, worker, previous, through) {
+  const { holidays, socialThreshold } = records.settings
+  let entries = workerLeave(records, worker.id)
+  const replacesLeave = previous?.workerId === worker.id
+  if (replacesLeave && (movesWorkingYear(previous.kind) || interruptsVacation(previous.kind))) {
+    entries = entries.filter(entry => entry.id !== previous.id)
+    if (interruptsVacation(previous.kind)) entries = updateAnnualCharges(entries, holidays)
+  }
+  const today = localDate()
+  return periodsFor(worker, entries, socialThreshold, through > today ? through : today)
+}
+
+export function annualVacationCharge(records, { worker, previous, period, start, end }) {
+  const { settings } = records
+  const unchanged = previous?.kind === 'annual' && previous.start === start && previous.end === end
+  const dayRule = unchanged ? previous.dayRule : vacationRule(settings, start, end)
+  const daysBeforeHolidays = unchanged ? previous.daysBeforeHolidays : chargeBeforeHolidays(start, end, dayRule)
+  const interruptions = workerLeave(records, worker.id).filter(entry => entry.id !== previous?.id && interruptsVacation(entry.kind))
+  const vacation = annualCharge({
+    workerId: worker.id, kind: 'annual', start, end, periodId: period?.id, dayRule, daysBeforeHolidays,
+  }, settings.holidays, interruptions)
+  if (!period) return { vacation }
+
+  const max = effectiveLimit(allowance(worker, records.groups).max, period.vacationCeiling)
+  const sameBalance = previous?.kind === 'annual' && previous.workerId === worker.id && previous.periodId === period.id
+  const used = period.used - (sameBalance ? previous.days : 0)
+  const remaining = max === null ? null : max - used - vacation.days
+  const exceedsAllowance = remaining < 0 && !(sameBalance && vacation.days <= previous.days)
+  return { vacation, remaining, exceedsAllowance }
+}
+
 function saveVacation(records, id, value) {
   const worker = activeWorker(records, value.workerId)
   const previous = id ? existing(records.vacations, id) : null
@@ -309,20 +339,12 @@ function saveVacation(records, id, value) {
   let details = { workerId: worker.id, kind, start: value.start, end: value.end }
 
   if (kind === 'annual') {
-    const priorInterruption = !previousWorker && interruptsVacation(previous?.kind)
-    const availableEntries = priorInterruption ? updateAnnualCharges(others, holidays) :
-      movesWorkingYear(previous?.kind) ? others : entries
-    const periods = periodsFor(worker, availableEntries, threshold, value.end)
-    const period = existing(periods, value.periodId)
-    const unchanged = previous?.kind === kind && previous.start === value.start && previous.end === value.end
-    const dayRule = unchanged ? previous.dayRule : vacationRule(records.settings, value.start, value.end)
-    const daysBeforeHolidays = unchanged ? previous.daysBeforeHolidays : chargeBeforeHolidays(value.start, value.end, dayRule)
-    const interruptions = others.filter(entry => interruptsVacation(entry.kind))
-    details = annualCharge({ ...details, periodId: period.id, dayRule, daysBeforeHolidays }, holidays, interruptions)
-    const max = effectiveLimit(allowance(worker, records.groups).max, period.vacationCeiling)
-    const sameBalance = previous?.kind === kind && previous.workerId === worker.id && previous.periodId === period.id
-    const used = period.used - (sameBalance ? previous.days : 0)
-    requireThat(max === null || used + details.days <= max || sameBalance && details.days <= previous.days, 'allowanceExceeded')
+    const period = existing(annualVacationPeriods(records, worker, previous, value.end), value.periodId)
+    const { vacation, exceedsAllowance } = annualVacationCharge(records, {
+      worker, previous, period, start: value.start, end: value.end,
+    })
+    requireThat(!exceedsAllowance, 'allowanceExceeded')
+    details = vacation
   } else {
     if (movesWorkingYear(kind)) {
       requireThat(periodOn(periodsFor(worker, others, threshold, value.start), value.start), 'leaveOutsidePeriod')

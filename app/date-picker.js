@@ -1,4 +1,4 @@
-function mountCalendar(container, { initial, today, language, t, id, selected, anchor, choose }) {
+function mountCalendar(container, { initial, today, language, t, id, selected, anchor, choose, holidays }) {
   const day = 86400000
   const firstDate = Date.UTC(1000, 0, 1)
   const lastDate = Date.UTC(9999, 11, 31)
@@ -59,7 +59,10 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
       if (dayOfMonth < 1 || dayOfMonth > length) return '<td></td>'
       const date = new Date(Date.UTC(year, month, dayOfMonth))
       const value = iso(date)
-      return `<td><button type="button" data-date="${value}" aria-label="${dateLabel(date)}"
+      const holiday = holidays?.has(value)
+      const label = holiday ? `${dateLabel(date)}. ${t('publicHoliday')}` : dateLabel(date)
+      return `<td><button type="button" data-date="${value}" aria-label="${label}"
+        ${holiday ? `class="calendar-holiday" title="${t('publicHoliday')}"` : ''}
         ${value === today ? 'aria-current="date"' : ''}>${number.format(dayOfMonth)}</button></td>`
     }).join('')}</tr>`).join('')
     monthTitle.textContent = monthLabel(start)
@@ -133,7 +136,7 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
   return { focusDay, showSelection }
 }
 
-function openDatePicker({ title, dates, language, t, today, endpoints = false, onApply }) {
+function openDatePicker({ title, dates, language, t, today, endpoints = false, holidays, describeRange, onApply }) {
   const picker = document.querySelector('#date-picker')
   const dateLabel = dateFormatter(language, 'medium')
   const number = new Intl.NumberFormat(language)
@@ -144,14 +147,21 @@ function openDatePicker({ title, dates, language, t, today, endpoints = false, o
   let rangeStart
 
   picker.classList.toggle('range-picker', endpoints)
+  const legend = holidays?.size ? `<p class="calendar-legend">${t('publicHoliday')}</p>` : ''
   picker.innerHTML = `<form class="dialog-content" method="dialog" novalidate>
-    <h2 id="date-picker-title">${title}</h2>
+    <div class="calendar-title"><h2 id="date-picker-title">${title}</h2>${legend}</div>
     ${endpoints ? `<div class="calendar-pair">${['start', 'end'].map(key => `
       <section data-calendar="${key}" aria-labelledby="calendar-${key}-label">
       <h3 id="calendar-${key}-label">${t(key)}</h3><p data-endpoint="${key}"></p>
       </section>`).join('')}</div>` : `<div data-calendar="dates"></div>
       <label class="check"><input name="range" type="checkbox">${t('selectDateRange')}</label>`}
-    <p role="status" class="calendar-message"></p>
+    <div role="status" class="calendar-feedback">
+      ${describeRange ? `<dl class="calendar-summary" hidden>
+        <div><dt>${t('vacationDaysToDeduct')}</dt><dd data-range-days></dd></div>
+        <div><dt>${t('remainingAfterVacation')}</dt><dd><span data-range-remaining></span><small data-range-period></small></dd></div>
+      </dl>` : ''}
+      <p class="calendar-message"></p>
+    </div>
     <div class="actions dialog-actions">
       <button type="button" value="cancel">${t('cancel')}</button>
       <button type="submit" class="primary">${t('applyDates')}</button>
@@ -159,8 +169,12 @@ function openDatePicker({ title, dates, language, t, today, endpoints = false, o
 
   const form = picker.querySelector('form')
   const range = form.elements.range
-  const status = form.querySelector('[role="status"]')
+  const status = form.querySelector('.calendar-message')
   const apply = form.querySelector('[type="submit"]')
+  const details = form.querySelector('.calendar-summary')
+  const days = form.querySelector('[data-range-days]')
+  const remaining = form.querySelector('[data-range-remaining]')
+  const period = form.querySelector('[data-range-period]')
 
   function showSummary() {
     let summary
@@ -170,8 +184,20 @@ function openDatePicker({ title, dates, language, t, today, endpoints = false, o
       }
       const invalid = Boolean(values.start && values.end && values.start > values.end)
       summary = invalid ? t('invalidRange') : !values.start ? t('selectRangeStart') : !values.end ? t('selectRangeEnd') : ''
-      status.classList.toggle('error', invalid)
       apply.disabled = invalid || !values.start || !values.end
+      const description = apply.disabled ? undefined : describeRange?.(values.start, values.end)
+      if (details) {
+        details.hidden = description?.days === undefined
+        if (!details.hidden) {
+          days.textContent = number.format(description.days)
+          const balance = description.remaining
+          remaining.textContent = balance === undefined ? t('none') : balance === null ? t('unlimited') : number.format(balance)
+          remaining.classList.toggle('over', balance < 0)
+          period.textContent = description.period
+        }
+      }
+      if (description?.message) summary = t(description.message)
+      status.classList.toggle('error', invalid || Boolean(description?.exceedsAllowance))
     } else {
       const count = `${t('selectedDates')} (${number.format(selected.size)})`
       summary = range.checked ? `${count} · ${t(rangeStart ? 'selectRangeEnd' : 'selectRangeStart')}` : count
@@ -180,7 +206,7 @@ function openDatePicker({ title, dates, language, t, today, endpoints = false, o
     if (status.textContent !== summary) status.textContent = summary
   }
 
-  const shared = { today, language, t }
+  const shared = { today, language, t, holidays }
   const calendars = endpoints ? ['start', 'end'].map(key => mountCalendar(form.querySelector(`[data-calendar="${key}"]`), {
     ...shared, id: 'calendar-' + key, initial: values[key] || start || today,
     selected: date => values[key] === date,

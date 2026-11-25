@@ -1,3 +1,4 @@
+import { annualVacationCharge, annualVacationPeriods } from './domain.mjs'
 import { interruptsVacation, leaveKinds, movesWorkingYear } from './leave-types.mjs'
 import { isRecordDate, localDate as today, periodOn, periodsFor } from './periods.mjs'
 
@@ -435,12 +436,32 @@ function dateRange({ start = '', end = '' }) {
     </div>`
 }
 
+function describeVacationRange(form, start, end) {
+  const records = snapshot.records
+  const worker = records.workers.find(item => item.id === form.elements.workerId.value)
+  if (!worker) return { message: 'chooseWorker' }
+
+  const previous = records.vacations.find(item => item.id === form.dataset.id)
+  const { period, periods } = vacationPeriodChoice(form, worker, previous, start, end)
+  const { vacation, remaining, exceedsAllowance } = annualVacationCharge(records, { worker, previous, period, start, end })
+  const message = !periods.length ? 'workerNeedsPeriod' : !period ? 'noPeriodForStart' :
+    exceedsAllowance ? 'allowanceExceeded' : ''
+  return {
+    days: vacation.days,
+    remaining,
+    period: period ? `${periodName(period)} · ${periodDates(period)}` : '',
+    message, exceedsAllowance,
+  }
+}
+
 function chooseRecordDates(target) {
   const form = target.form
   if (form.dataset.saving) return
   const dates = [form.elements.start.value, form.elements.end.value]
   openDatePicker({
     title: t('dateRange'), dates, language, t, today: today(), endpoints: true,
+    holidays: new Set(snapshot.records.settings.holidays),
+    describeRange: form.elements.kind.value === 'annual' ? (start, end) => describeVacationRange(form, start, end) : undefined,
     onApply: ([start, end]) => {
       target.closest('.range-field').outerHTML = dateRange({ start, end })
       updateLeaveFields(form)
@@ -517,6 +538,12 @@ function balanceEdit(id) {
   dialog.querySelector('[name="socialTaken"]').dataset.original = period.socialTaken
 }
 
+function vacationPeriodChoice(form, worker, previous, start, end) {
+  const periods = annualVacationPeriods(snapshot.records, worker, previous, start > end ? start : end)
+  const manual = periods.find(period => period.id === form.dataset.manualPeriod)
+  return { periods, period: manual ?? periodOn(periods, start) }
+}
+
 function updateLeaveFields(form) {
   const worker = snapshot.records.workers.find(item => item.id === form.elements.workerId.value)
   const { start, end, kind, periodId } = form.elements
@@ -535,20 +562,20 @@ function updateLeaveFields(form) {
   help.hidden = !help.textContent
   if (!worker) return
 
-  const through = [today(), start.value, end.value].sort().at(-1)
-  const previous = snapshot.records.vacations.find(item => item.id === form.dataset.id && item.workerId === worker.id)
-  const scheduled = previous?.kind === 'annual' ? [...entries, previous] : entries
-  const periods = periodsFor(worker, scheduled, snapshot.records.settings.socialThreshold, through)
   if (pickerVisible) {
-    const manual = form.dataset.manualPeriod
-    const selected = periods.some(period => period.id === manual) ? manual : periodOn(periods, start.value)?.id ?? ''
+    const previous = snapshot.records.vacations.find(item => item.id === form.dataset.id)
+    const { periods, period } = vacationPeriodChoice(form, worker, previous, start.value, end.value)
+    const selected = period?.id ?? ''
     const choices = periods.slice().reverse().map(period => ({ id: period.id, name: `${periodName(period)} · ${periodDates(period)}` }))
     periodId.innerHTML = options(choices, selected, 'choosePeriod')
     periodId.value = selected
     if (!periods.length) setFormError(form, 'workerNeedsPeriod')
     else if (!selected) setFormError(form, 'noPeriodForStart')
+  } else if (movesWorkingYear(kind.value)) {
+    const through = [today(), start.value, end.value].sort().at(-1)
+    const periods = periodsFor(worker, entries, snapshot.records.settings.socialThreshold, through)
+    if (!periodOn(periods, start.value)) setFormError(form, 'leaveOutsidePeriod')
   }
-  if (movesWorkingYear(kind.value) && !periodOn(periods, start.value)) setFormError(form, 'leaveOutsidePeriod')
 }
 
 function vacationEdit(id, workerId) {
