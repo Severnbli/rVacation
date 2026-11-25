@@ -1,4 +1,4 @@
-function mountCalendar(container, { initial, today, language, t, id, selected, anchor, choose, holidays }) {
+function mountCalendar(container, { initial, today, language, t, id, selected, choose, holidays, markedDates }) {
   const day = 86400000
   const firstDate = Date.UTC(1000, 0, 1)
   const lastDate = Date.UTC(9999, 11, 31)
@@ -7,6 +7,7 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
   const weekStart = new Intl.Locale(language).getWeekInfo().firstDay % 7
   const weekday = dateFormatter(language, 'weekday')
   const monthName = dateFormatter(language, 'monthName')
+  const months = Array.from({ length: 12 }, (_, index) => monthName(new Date(Date.UTC(2024, index, 1))))
   const monthLabel = dateFormatter(language, 'month')
   const dateLabel = dateFormatter(language, 'full')
   const number = new Intl.NumberFormat(language)
@@ -15,8 +16,8 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
   container.insertAdjacentHTML('beforeend', `<div class="calendar-header">
       <button type="button" data-month-step="-1" aria-label="${t('previousMonth')}" title="${t('previousMonth')}">‹</button>
       <div class="calendar-month-fields">
-        <select aria-label="${t('month')}">${Array.from({ length: 12 }, (_, index) =>
-          `<option value="${index}">${monthName(new Date(Date.UTC(2024, index, 1)))}</option>`).join('')}</select>
+        <select aria-label="${t('month')}">${months.map((name, index) =>
+          `<option value="${index}">${name}</option>`).join('')}</select>
         <input type="number" min="1000" max="9999" step="1" aria-label="${t('year')}">
       </div>
       <button type="button" data-month-step="1" aria-label="${t('nextMonth')}" title="${t('nextMonth')}">›</button>
@@ -42,8 +43,19 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
     for (const button of body.querySelectorAll('button')) {
       const date = button.dataset.date
       button.setAttribute('aria-pressed', selected(date))
-      button.classList.toggle('calendar-range-start', date === anchor?.())
       button.tabIndex = date === active ? 0 : -1
+    }
+  }
+
+  function showMonthCounts() {
+    if (!markedDates) return
+    const year = iso(cursor).slice(0, 4)
+    const counts = Array(12).fill(0)
+    for (const date of markedDates) {
+      if (date.startsWith(year)) counts[Number(date.slice(5, 7)) - 1]++
+    }
+    for (const [index, option] of Array.from(monthInput.options).entries()) {
+      option.textContent = counts[index] ? `${months[index]} · ${number.format(counts[index])}` : months[index]
     }
   }
 
@@ -70,6 +82,7 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
     yearInput.value = year
     previous.disabled = +start === firstDate
     next.disabled = year === 9999 && month === 11
+    showMonthCounts()
     showSelection()
   }
 
@@ -93,6 +106,7 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
     if (date) {
       cursor = new Date(date)
       choose(date)
+      showMonthCounts()
       showSelection()
     }
   })
@@ -133,28 +147,34 @@ function mountCalendar(container, { initial, today, language, t, id, selected, a
     focusDay()
   })
   showMonth()
-  return { focusDay, showSelection }
+  return {
+    focusDay,
+    refresh() {
+      const focused = body.contains(document.activeElement)
+      showMonth()
+      if (focused) focusDay()
+    },
+    showDate(date) {
+      cursor = boundedDate(Date.parse(date))
+      showMonth()
+    },
+  }
 }
 
-function openDatePicker({ title, dates, language, t, today, endpoints = false, holidays, describeRange, onApply }) {
+function openDatePicker({ title, dates, language, t, today, holidays, describeRange, onApply }) {
   const picker = document.querySelector('#date-picker')
   const dateLabel = dateFormatter(language, 'medium')
   const number = new Intl.NumberFormat(language)
-  const selected = new Set(dates)
-  const sorted = [...selected].sort()
   const [start, end] = dates
   const values = { start, end }
-  let rangeStart
 
-  picker.classList.toggle('range-picker', endpoints)
   const legend = holidays?.size ? `<p class="calendar-legend">${t('publicHoliday')}</p>` : ''
   picker.innerHTML = `<form class="dialog-content" method="dialog" novalidate>
     <div class="calendar-title"><h2 id="date-picker-title">${title}</h2>${legend}</div>
-    ${endpoints ? `<div class="calendar-pair">${['start', 'end'].map(key => `
+    <div class="calendar-pair">${['start', 'end'].map(key => `
       <section data-calendar="${key}" aria-labelledby="calendar-${key}-label">
       <h3 id="calendar-${key}-label">${t(key)}</h3><p data-endpoint="${key}"></p>
-      </section>`).join('')}</div>` : `<div data-calendar="dates"></div>
-      <label class="check"><input name="range" type="checkbox">${t('selectDateRange')}</label>`}
+      </section>`).join('')}</div>
     <div role="status" class="calendar-feedback">
       ${describeRange ? `<dl class="calendar-summary" hidden>
         <div><dt>${t('vacationDaysToDeduct')}</dt><dd data-range-days></dd></div>
@@ -168,7 +188,6 @@ function openDatePicker({ title, dates, language, t, today, endpoints = false, h
     </div></form>`
 
   const form = picker.querySelector('form')
-  const range = form.elements.range
   const status = form.querySelector('.calendar-message')
   const apply = form.querySelector('[type="submit"]')
   const details = form.querySelector('.calendar-summary')
@@ -177,76 +196,43 @@ function openDatePicker({ title, dates, language, t, today, endpoints = false, h
   const period = form.querySelector('[data-range-period]')
 
   function showSummary() {
-    let summary
-    if (endpoints) {
-      for (const key of ['start', 'end']) {
-        form.querySelector(`[data-endpoint="${key}"]`).textContent = values[key] ? dateLabel(new Date(values[key])) : t('none')
-      }
-      const invalid = Boolean(values.start && values.end && values.start > values.end)
-      summary = invalid ? t('invalidRange') : !values.start ? t('selectRangeStart') : !values.end ? t('selectRangeEnd') : ''
-      apply.disabled = invalid || !values.start || !values.end
-      const description = apply.disabled ? undefined : describeRange?.(values.start, values.end)
-      if (details) {
-        details.hidden = description?.days === undefined
-        if (!details.hidden) {
-          days.textContent = number.format(description.days)
-          const balance = description.remaining
-          remaining.textContent = balance === undefined ? t('none') : balance === null ? t('unlimited') : number.format(balance)
-          remaining.classList.toggle('over', balance < 0)
-          period.textContent = description.period
-        }
-      }
-      if (description?.message) summary = t(description.message)
-      status.classList.toggle('error', invalid || Boolean(description?.exceedsAllowance))
-    } else {
-      const count = `${t('selectedDates')} (${number.format(selected.size)})`
-      summary = range.checked ? `${count} · ${t(rangeStart ? 'selectRangeEnd' : 'selectRangeStart')}` : count
-      apply.disabled = Boolean(rangeStart)
+    for (const key of ['start', 'end']) {
+      form.querySelector(`[data-endpoint="${key}"]`).textContent = values[key] ? dateLabel(new Date(values[key])) : t('none')
     }
+    const invalid = Boolean(values.start && values.end && values.start > values.end)
+    let summary = invalid ? t('invalidRange') : !values.start ? t('selectRangeStart') : !values.end ? t('selectRangeEnd') : ''
+    apply.disabled = invalid || !values.start || !values.end
+    const description = apply.disabled ? undefined : describeRange?.(values.start, values.end)
+    if (details) {
+      details.hidden = description?.days === undefined
+      if (!details.hidden) {
+        days.textContent = number.format(description.days)
+        const balance = description.remaining
+        remaining.textContent = balance === undefined ? t('none') : balance === null ? t('unlimited') : number.format(balance)
+        remaining.classList.toggle('over', balance < 0)
+        period.textContent = description.period
+      }
+    }
+    if (description?.message) summary = t(description.message)
+    status.classList.toggle('error', invalid || Boolean(description?.exceedsAllowance))
     if (status.textContent !== summary) status.textContent = summary
   }
 
   const shared = { today, language, t, holidays }
-  const calendars = endpoints ? ['start', 'end'].map(key => mountCalendar(form.querySelector(`[data-calendar="${key}"]`), {
+  const calendars = ['start', 'end'].map(key => mountCalendar(form.querySelector(`[data-calendar="${key}"]`), {
     ...shared, id: 'calendar-' + key, initial: values[key] || start || today,
     selected: date => values[key] === date,
     choose(date) {
       values[key] = date
       showSummary()
     },
-  })) : [mountCalendar(form.querySelector('[data-calendar="dates"]'), {
-    ...shared, id: 'calendar-dates', initial: sorted.find(date => date >= today) ?? sorted.at(-1) ?? today,
-    selected: date => selected.has(date),
-    anchor: () => rangeStart,
-    choose(date) {
-      if (range.checked) {
-        if (rangeStart) {
-          const [first, last] = [rangeStart, date].sort().map(Date.parse)
-          for (let time = first; time <= last; time += 86400000) {
-            selected.add(new Date(time).toISOString().slice(0, 10))
-          }
-          rangeStart = undefined
-          range.checked = false
-        } else {
-          rangeStart = date
-        }
-      } else if (!selected.delete(date)) {
-        selected.add(date)
-      }
-      showSummary()
-    },
-  })]
-  range?.addEventListener('change', () => {
-    rangeStart = undefined
-    calendars[0].showSelection()
-    showSummary()
-  })
+  }))
   form.querySelector('[value="cancel"]').addEventListener('click', () => picker.close())
   form.addEventListener('submit', event => {
     event.preventDefault()
     if (apply.disabled) return
     picker.close()
-    onApply(endpoints ? [values.start, values.end] : [...selected].sort())
+    onApply([values.start, values.end])
   })
 
   showSummary()
