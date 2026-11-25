@@ -27,6 +27,7 @@ rVacation is a desktop app for secretaries to maintain worker records, record va
 ## Day counting
 
 - Count calendar days by default, with a weekdays option. Configured public holidays are free in either mode. When holiday dates change, update charges for recorded annual vacations using the counting rule saved with each vacation.
+- When the holiday calendar picker opens, list the text configs in the repository's `holidays/` folder on GitHub. Add dates from the selected config to the draft and apply them when the user saves Settings. Manual date selection and local file import work offline.
 - The employee’s own certified incapacity and pregnancy and childbirth leave may overlap annual vacation. Return the chargeable days covered by either type to the worker’s annual balance once, accounting for public holidays. Record the agreed extension by editing the end date, or record transferred days separately in the same working year. Block intersections between other leave records. See [Labour Code Articles 151 and 171](https://faolex.fao.org/docs/pdf/blr245118.pdf).
 
 ## Localization
@@ -54,5 +55,5 @@ Start each task by reviewing how it affects the secretary's workflow, including 
 ## Open decisions
 
 - Whether to split one vacation between multiple periods.
-- Whether to provide built-in holiday calendars or keep office-managed dates.
+- Whether to bundle holiday calendars for offline import.
 - Signing and packaging for additional operating system architectures.

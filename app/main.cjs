@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, net, shell } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const { existsSync } = require('node:fs')
 const fs = require('node:fs/promises')
@@ -6,6 +6,7 @@ const path = require('node:path')
 const Papa = require('papaparse')
 const { readSheet } = require('read-excel-file/node')
 const { RecordError } = require('./domain.mjs')
+const { listHolidayFiles, readHolidayFile } = require('./holiday-repository.mjs')
 const { openRecords } = require('./storage.mjs')
 
 let window
@@ -107,6 +108,8 @@ async function launch() {
   register('records:import', importDatabase, 'databaseSaveFailed')
   register('records:folder', openDataFolder, 'dataFolderFailed')
   register('workers:file', openWorkers, 'invalidImport')
+  register('holidays:list', () => listHolidayFiles(net.fetch), 'holidayCatalogFailed')
+  register('holidays:read', name => readHolidayFile(name, net.fetch))
   register('app:repository', () => shell.openExternal(repositoryUrl))
   register('update:get', () => ({ state: updateState, version: app.getVersion() }))
   register('update:check', checkUpdate)

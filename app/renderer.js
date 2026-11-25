@@ -5,6 +5,7 @@ import { isRecordDate, localDate as today, periodOn, periodsFor } from './period
 
 const main = document.querySelector('#main')
 const dialog = document.querySelector('#editor')
+const holidayCatalog = document.querySelector('#holiday-catalog')
 const updatePrompt = document.querySelector('#update-prompt')
 const nav = document.querySelector('#nav')
 const footer = document.querySelector('#footer')
@@ -252,20 +253,91 @@ function mostRelevantDate(dates, current) {
   return sorted.find(date => date >= current) ?? sorted.at(-1) ?? current
 }
 
-async function holidayFileDates(file) {
-  let result
-  try {
-    result = parseHolidayDates(await file.text())
-  } catch {
-    return { error: t('unreadableHolidayFile').replace('{file}', () => file.name) }
+function holidayFileDates(name, text) {
+  if (typeof text !== 'string') {
+    return { error: t('unreadableHolidayFile').replace('{file}', () => name) }
   }
+  const result = parseHolidayDates(text)
   if (result.invalidLine) {
-    return { error: t('invalidHolidayDate').replace('{line}', number(result.invalidLine)).replace('{file}', () => file.name) }
+    return { error: t('invalidHolidayDate').replace('{line}', number(result.invalidLine)).replace('{file}', () => name) }
   }
   if (!result.dates.length) {
-    return { error: t('emptyHolidayFile').replace('{file}', () => file.name) }
+    return { error: t('emptyHolidayFile').replace('{file}', () => name) }
   }
   return result
+}
+
+function openHolidayCatalog(addDates) {
+  holidayCatalog.innerHTML = `<form class="dialog-content" method="dialog">
+    <h2 id="holiday-catalog-title" tabindex="-1" autofocus>${t('holidayCatalog')}</h2>
+    <p class="holiday-import-status" role="status"></p>
+    <div data-holiday-choice hidden><label>${t('holidayCalendar')}<select required></select></label></div>
+    <div class="actions dialog-actions">
+    <button type="button" value="cancel">${t('cancel')}</button>
+    <button type="button" value="retry" hidden>${t('retry')}</button>
+    <button type="submit" class="primary" hidden>${t('addHolidays')}</button>
+    </div></form>`
+  const form = holidayCatalog.querySelector('form')
+  const title = form.querySelector('h2')
+  const status = form.querySelector('[role="status"]')
+  const choice = form.querySelector('[data-holiday-choice]')
+  const selection = choice.querySelector('select')
+  const retry = form.querySelector('[value="retry"]')
+  const add = form.querySelector('[type="submit"]')
+  const isOpen = () => holidayCatalog.open && form.isConnected
+  const showStatus = (message, failed = false) => {
+    status.classList.toggle('error', failed)
+    status.textContent = message
+  }
+
+  async function load() {
+    if (!retry.hidden) title.focus()
+    retry.hidden = true
+    showStatus(t('holidayCatalogLoading'))
+    const { files, error } = await desktop.listHolidayFiles()
+    if (!isOpen()) return
+    if (error) {
+      showStatus(t(error), true)
+      retry.hidden = false
+      if (document.activeElement === title) retry.focus()
+    } else if (!files.length) {
+      showStatus(t('holidayCatalogEmpty'))
+    } else {
+      selection.innerHTML = options(files.map(id => {
+        const year = /^belarus-(\d{4})\.txt$/i.exec(id)?.[1]
+        return { id, name: year ? t('belarusHolidayCalendar').replace('{year}', year) : id }
+      }))
+      showStatus('')
+      choice.hidden = false
+      add.hidden = false
+      if (document.activeElement === title) selection.focus()
+    }
+  }
+
+  form.querySelector('[value="cancel"]').addEventListener('click', () => holidayCatalog.close())
+  retry.addEventListener('click', load)
+  form.addEventListener('submit', async event => {
+    event.preventDefault()
+    if (add.disabled || !selection.value) return
+    const name = selection.value
+    title.focus()
+    add.disabled = selection.disabled = true
+    showStatus(t('holidayDatesLoading'))
+    const { text } = await desktop.readHolidayFile(name)
+    if (!isOpen()) return
+    const { dates, error } = holidayFileDates(name, text)
+    if (error) {
+      showStatus(error, true)
+      add.disabled = selection.disabled = false
+      if (document.activeElement === title) add.focus()
+      return
+    }
+    holidayCatalog.close()
+    addDates(dates)
+  })
+
+  holidayCatalog.showModal()
+  void load()
 }
 
 function mountHolidaySettings(form, settings) {
@@ -288,13 +360,29 @@ function mountHolidaySettings(form, settings) {
   const importButton = form.querySelector('[data-action="import-holidays"]')
   const status = form.querySelector('[data-holiday-import-status]')
   const save = form.querySelector('[type="submit"]')
+  const busy = () => form.dataset.saving || form.dataset.importingDates
+  function addDates(dates) {
+    const added = [...dates].filter(date => !holidays.has(date))
+    status.classList.remove('error')
+    if (!added.length) {
+      status.textContent = t('noNewHolidayDates')
+      return
+    }
+    for (const date of added) holidays.add(date)
+    calendar.showDate(mostRelevantDate(added, today()))
+    status.textContent = t('holidayDatesImported').replace('{count}', number(added.length))
+  }
+
+  form.querySelector('[data-action="browse-holidays"]').addEventListener('click', () => {
+    if (!busy()) openHolidayCatalog(addDates)
+  })
   importButton.addEventListener('click', () => {
-    if (!form.dataset.saving && !form.dataset.importingDates) input.click()
+    if (!busy()) input.click()
   })
   input.addEventListener('change', async () => {
     const files = [...input.files]
     input.value = ''
-    if (!files.length || form.dataset.saving || form.dataset.importingDates) return
+    if (!files.length || busy()) return
     form.dataset.importingDates = 'yes'
     save.disabled = true
     status.textContent = ''
@@ -302,7 +390,7 @@ function mountHolidaySettings(form, settings) {
     try {
       const imported = new Set()
       for (const file of files) {
-        const { dates, error } = await holidayFileDates(file)
+        const { dates, error } = holidayFileDates(file.name, await file.text().catch(() => undefined))
         if (!form.isConnected) return
         if (error) {
           status.classList.add('error')
@@ -311,14 +399,7 @@ function mountHolidaySettings(form, settings) {
         }
         for (const date of dates) imported.add(date)
       }
-      for (const date of holidays) imported.delete(date)
-      if (!imported.size) {
-        status.textContent = t('noNewHolidayDates')
-        return
-      }
-      for (const date of imported) holidays.add(date)
-      calendar.showDate(mostRelevantDate(imported, today()))
-      status.textContent = t('holidayDatesImported').replace('{count}', number(imported.size))
+      addDates(imported)
     } finally {
       delete form.dataset.importingDates
       save.disabled = false
@@ -330,7 +411,10 @@ function holidaySettings() {
   return `<section class="settings-calendar" aria-labelledby="holidays-label">
     <div class="calendar-title">
     <h3 id="holidays-label">${t('holidays')}</h3>
+    <div class="actions">
+    ${button('browse-holidays', 'browseHolidayCatalog', '', 'small')}
     <button type="button" class="small" data-action="import-holidays" aria-describedby="holiday-file-format">${t('importHolidayDates')}</button>
+    </div>
     </div>
     <input type="file" accept=".txt,text/plain" multiple data-holiday-file hidden>
     <small id="holiday-file-format">${t('holidayFileFormat')}</small>
@@ -390,6 +474,7 @@ function showUpdatePrompt() {
 }
 
 function render() {
+  if (holidayCatalog.open) holidayCatalog.close()
   document.documentElement.lang = language
   nav.setAttribute('aria-label', t('navigation'))
   nav.innerHTML = pages.map(id => `<button type="button" data-action="page" data-id="${id}" ${id === page ? 'aria-current="page"' : ''}>${t(id)}</button>`).join('')
@@ -651,7 +736,7 @@ function importEditor() {
 }
 
 function setFormError(form, error) {
-  form.querySelector('.error').textContent = t(error)
+  form.querySelector('[role="alert"]').textContent = t(error)
 }
 
 async function submitForm(event) {
