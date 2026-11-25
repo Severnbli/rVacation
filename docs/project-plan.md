@@ -8,20 +8,26 @@ rVacation is a desktop app for secretaries to maintain worker records, record va
 
 - Store `rvacation.sqlite` outside the installation directory. The Electron main process owns the database and applies the same vacation rules for every change.
 - Use SQLite's `user_version` to track schema migrations. Run pending migrations in a transaction and advance the schema version only when the migration succeeds. Keep the database intact if opened by a version of the app that cannot read it.
-- Offer import from a backup of the former service before the first local save. Preserve record links, recorded day counts, and day-counting settings. Local records are independent on each installation.
+- Offer import from a backup of the former service before the first local save. Preserve record links, historical charges, and day-counting settings. Credit configured holidays at migration when a recorded charge matches the full charge before holidays. Local records are independent on each installation.
 
 ## Workers, groups, and periods
 
 - Add workers individually, by pasting spreadsheet rows, or by importing a spreadsheet file. Import uses the first column of CSV, TSV, and XLSX sheets. Workers can share a name. Sort and filter the worker list by group. A worker can belong to several groups.
 - Mark former workers as fired from Workers. Hide them and their vacations from normal views, totals, and selectors. Recovering a worker restores their visibility with their vacation history, groups, and allowance.
-- Create named vacation entitlement periods such as `25/26` and `26/27`. These labels identify the allowance a vacation is charged against. A vacation record needs a worker, its dates, and its charged period. Suggest the period containing the vacation start date and let the secretary override it. Periods cannot overlap. Each vacation is charged to one period.
+- Set the start date of each worker’s first working year. Periods are inclusive and renew automatically. For example, a year starting September 1 runs through August 31. A February 29 start renews on March 1 in non-leap years.
+- Save a name and date as a template. Applying a template fills the name of the first period and the start date. Both fields remain editable for that worker. The Periods page shows the worker’s history and the Overview finds the period that contains the selected date.
+- Record annual vacation, social leave, and maternity leave for an active worker. Block intersections across all types. Suggest the worker’s period containing the start of an annual vacation and allow the secretary to charge another period. Each annual vacation is charged to one period.
+- Count social and maternity leave in calendar days. The portion of social leave exceeding the per-period threshold and every maternity leave day extend the period. The next period starts the following day, shifting later periods by the same number of days. The default social leave threshold is 14 days and can be changed in Settings.
+- For each period, allow a manual remaining vacation balance and a count of social leave already taken that has no leave record. Subtract later annual vacation from the manual balance and enforce the applicable worker or group limit. Add prior social leave to dated social leave for working-year calculations.
+- Keep the original start date and the date changes caused by leave, threshold adjustments, and manual corrections in the worker’s period history. Allow an optional name for manual start-date and social leave corrections.
+- Existing shared period names and start dates become templates. Workers with vacation history keep the periods they used and the periods between them. Their first recurring year starts the day after the last such period. Set the first start date for existing workers who have no vacation history.
 - Set a maximum number of vacation days for individual workers and for groups. A personal limit takes precedence when set. Otherwise, enforce every configured limit on the worker's groups against that worker's vacation total for the period. For example, membership in groups with limits of 24 and 30 days means the worker can use up to 24 days in that period. A personal limit of 28 days would make 28 days the applicable maximum.
 - Show days used, the applicable limit, and days remaining by worker and period. Show whether a personal or group rule controls each balance. No configured limit means unlimited. Block new entries that would exceed a limit. Changes to a worker or group limit can surface an overage on an existing balance.
 
 ## Day counting
 
-- Let the secretary choose the vacation day-counting rule in app settings. By default, count calendar days including weekends and exclude the holiday dates entered by the secretary, even when a holiday falls on a weekend. Settings also support weekdays and weekdays excluding holidays. Recorded day counts stay fixed unless the vacation dates change.
-- Let the secretary mark specific dates as deductible for all workers. A marked date counts only when it falls within the worker's recorded vacation, even if the selected day-counting rule would otherwise exclude it.
+- Count calendar days by default, with a weekdays option. Configured public holidays are free in either mode. When holiday dates change, update charges for recorded annual vacations using the weekend rule and extra chargeable dates saved with each vacation.
+- Let the secretary mark specific dates as chargeable for all workers. Those dates count when they fall within a vacation and are outside the holiday list, even if the day-counting rule would exclude them.
 
 ## Localization
 

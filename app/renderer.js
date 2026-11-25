@@ -1,3 +1,5 @@
+import { isRecordDate, localDate as today, periodOn, periodsFor } from './periods.mjs'
+
 const main = document.querySelector('#main')
 const dialog = document.querySelector('#editor')
 const updatePrompt = document.querySelector('#update-prompt')
@@ -13,7 +15,8 @@ let snapshot
 let recordsError
 let importingDatabase = false
 let page = 'overview'
-let periodId = ''
+let balanceDate = ''
+let periodWorkerId = ''
 let groupId = ''
 let sortBy = 'name'
 let search = ''
@@ -28,9 +31,16 @@ const displayDate = value => dateFormatter(language, 'medium')(new Date(value))
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character])
-const today = () => {
-  const date = new Date()
-  return [date.getFullYear(), date.getMonth() + 1, date.getDate()].map(value => String(value).padStart(2, '0')).join('-')
+const leaveKinds = ['annual', 'social', 'maternity']
+const totalDays = value => value === null ? t('unlimited') : number(value)
+const periodName = period => period.name || t('workingYear').replace('{number}', number(period.year))
+
+function findBalance(workerId) {
+  return snapshot.balances.find(balance => balance.id === workerId)
+}
+
+function periodDates(period) {
+  return `${displayDate(period.start)} – ${displayDate(period.end)}`
 }
 
 function toast(key) {
@@ -86,9 +96,9 @@ function sortWorkers(records) {
   })
 }
 
-function filters(records, showPeriods) {
+function filters(records, showDate) {
   return `<div class="filters">
-    ${showPeriods ? `<label>${t('period')}<select data-filter="period" ${!records.periods.length ? 'disabled' : ''}>${options(records.periods, periodId, records.periods.length ? null : 'noPeriods')}</select></label>` : ''}
+    ${showDate ? `<label>${t('balanceDate')}<input type="date" data-filter="date" min="1000-01-01" max="${today()}" value="${balanceDate || today()}"></label>` : ''}
     <label>${t('group')}<select data-filter="group">${options(records.groups, groupId, 'allGroups')}</select></label>
     <label>${t('sort')}<select data-filter="sort">${options([{ id: 'name', name: t('name') }, { id: 'group', name: t('group') }], sortBy)}</select></label>
     <label>${t('search')}<input type="search" data-filter="search" value="${escape(search)}"></label>
@@ -100,16 +110,17 @@ function workerRows(records, overview) {
   return sortWorkers(records).map(worker => {
     const balance = balances.get(worker.id)
     const { max, personal, groupNames: limitingGroups } = balance.rule
-    const used = balance.used[periodId] ?? 0
+    const period = periodOn(balance.periods, balanceDate || today())
     const rule = personal ? t('personal') : limitingGroups.join(', ')
-    const remaining = max === null ? t('unlimited') : number(max - used)
+    const periodCell = period ? `${escape(periodName(period))}<br><small>${periodDates(period)}</small>` :
+      t(balance.periods.length ? 'none' : 'noWorkerPeriod')
     return `<tr><td><strong>${escape(worker.name)}</strong></td><td>${groupBadges(worker, records.groups)}</td>
-      ${overview ? `<td class="number">${periodId ? number(used) : t('none')}</td>` : ''}
-      <td class="number" title="${escape(rule)}">${max === null ? t('unlimited') : number(max)}
-      ${rule ? `<br><small>${escape(rule)}</small>` : ''}</td>
-      ${overview ? `<td class="number ${max !== null && used > max ? 'over' : ''}">${periodId ? remaining : t('none')}</td>` : ''}
-      <td><div class="actions">${overview ? button('vacation-for', 'recordShort', worker.id, 'small') :
-        button('edit-worker', 'edit', worker.id, 'small') + button('fire-worker', 'markFired', worker.id, 'small danger')}</div></td></tr>`
+      ${overview ? `<td>${periodCell}</td><td class="number">${period ? number(period.used) : t('none')}</td>` : ''}
+      <td class="number">${totalDays(max)}${rule ? `<br><small>${escape(rule)}</small>` : ''}</td>
+      ${overview ? `<td class="number ${period?.remaining < 0 ? 'over' : ''}">${period ? totalDays(period.remaining) : t('none')}</td>` : ''}
+      <td><div class="actions">${overview ? button('vacation-for', 'recordShort', worker.id, 'small') +
+        button('worker-periods', 'periods', worker.id, 'small') : button('edit-worker', 'edit', worker.id, 'small') +
+        button('worker-periods', 'periods', worker.id, 'small') + button('fire-worker', 'markFired', worker.id, 'small danger')}</div></td></tr>`
   })
 }
 
@@ -117,21 +128,20 @@ function overview(records) {
   const metrics = [
     ['workers', records.workers.length],
     ['groups', records.groups.length],
-    ['vacationsInPeriod', records.vacations.filter(item => item.periodId === periodId).length],
+    ['vacations', records.vacations.length],
   ]
   return heading('overview', button('new-vacation', 'recordVacation', '', 'primary')) +
     (snapshot.showLegacyImport ? `<section class="panel setup"><div class="panel-body"><h2>${t('legacyRecords')}</h2>
     <p>${t('legacyRecordsHelp')}</p><div class="actions">${button('page', 'settings', 'settings')}</div></div></section>` : '') +
-    (!records.workers.length || !records.periods.length ? `<section class="panel setup"><div class="panel-body"><h2>${t('getStarted')}</h2>
-    <p>${t('vacationNeedsRecords')}</p><div class="actions">${!records.workers.length ? button('page', 'workers', 'workers') : ''}
-    ${!records.periods.length ? button('page', 'periods', 'periods') : ''}</div></div></section>` : '') +
+    (!records.workers.length ? `<section class="panel setup"><div class="panel-body"><h2>${t('getStarted')}</h2>
+    <p>${t('vacationNeedsRecords')}</p><div class="actions">${button('new-worker', 'addWorker')}</div></div></section>` : '') +
     `<div class="cards">${metrics.map(([key, value]) => `<div class="card"><strong>${number(value)}</strong><span>${t(key)}</span></div>`).join('')}</div>
     <section class="panel"><div class="panel-top"><h2>${t('balances')}</h2>${filters(records, true)}</div>
     <div id="worker-results">${workerResults(records, true)}</div></section>`
 }
 
 function workerResults(records, overviewMode) {
-  return table(overviewMode ? ['worker', 'groups', 'used', 'limit', 'remaining', 'actions'] : ['worker', 'groups', 'limit', 'actions'],
+  return table(overviewMode ? ['worker', 'groups', 'period', 'used', 'limit', 'remaining', 'actions'] : ['worker', 'groups', 'limit', 'actions'],
     workerRows(records, overviewMode), records.workers.length ? 'noMatches' : 'noWorkers')
 }
 
@@ -150,24 +160,79 @@ function renderGroups(records) {
     `<section class="panel">${table(['name', 'workers', 'limit', 'actions'], rows, 'noGroups')}</section>`
 }
 
+function historyDescription(event) {
+  const direction = (from, to) => `${from} → ${to}`
+  const leave = entry => `${t(entry.kind)} · ${periodDates(entry)}`
+  switch (event.type) {
+    case 'startSet': return displayDate(event.to)
+    case 'startImported': return event.recurringStart
+      ? t('importedStartDetail').replace('{date}', displayDate(event.to)).replace('{next}', displayDate(event.recurringStart))
+      : displayDate(event.to)
+    case 'startChanged': return direction(displayDate(event.from), displayDate(event.to))
+    case 'socialTakenChanged': return `${periodName({ name: event.periodName, year: event.year })} · ${direction(number(event.from), number(event.to))}`
+    case 'thresholdChanged': return direction(number(event.from), number(event.to))
+    case 'leaveAdded': return leave(event.to)
+    case 'leaveDeleted': return leave(event.from)
+    case 'leaveEdited': return direction(leave(event.from), leave(event.to))
+  }
+}
+
+function periodHistory(worker) {
+  if (!worker) return ''
+  const history = worker.periodHistory ?? []
+  const original = history.find(event => event.type === 'startSet' || event.type === 'startImported')?.to
+  if (!original) return ''
+  const rows = history.slice().reverse().map(event => {
+    const label = `<strong>${escape(event.name || t(event.type))}</strong>${event.name ? ` · ${t(event.type)}` : ''}
+      ${event.recordedAt ? `<small>${displayDate(event.recordedAt)}</small>` : ''}
+      <span>${escape(historyDescription(event))}</span>`
+    const changes = event.changes.map(change => `<tr><td>${escape(periodName(change))}</td>
+      <td>${periodDates(change.before)}</td><td>${periodDates(change.after)}</td></tr>`)
+    return changes.length ? `<details class="history-entry"><summary>${label}</summary>
+      ${table(['period', 'beforeChange', 'afterChange'], changes)}</details>` :
+      `<div class="history-entry">${label}</div>`
+  })
+  return `<section class="panel"><div class="panel-top"><h2>${t('periodHistory')}</h2>
+    <span>${t('originalStart')} <strong>${displayDate(original)}</strong></span></div>
+    <div>${rows.join('')}</div></section>`
+}
+
 function renderPeriods(records) {
-  const rows = records.periods.slice().sort((a, b) => b.start.localeCompare(a.start)).map(item =>
-    `<tr><td><strong>${escape(item.name)}</strong></td><td>${displayDate(item.start)}</td><td>${displayDate(item.end)}</td>
-    <td>${button('edit-period', 'edit', item.id, 'small')}</td></tr>`)
-  return heading('periods', button('new-period', 'addPeriod', '', 'primary')) +
-    `<section class="panel">${table(['name', 'start', 'end', 'actions'], rows, 'noPeriods')}</section>`
+  const workers = records.workers.slice().sort((a, b) => a.name.localeCompare(b.name, language))
+  const worker = workers.find(item => item.id === periodWorkerId) ?? workers[0]
+  const periods = worker ? findBalance(worker.id).periods : []
+  const rows = periods.slice().reverse().map(period => `<tr>
+    <td><strong>${escape(periodName(period))}</strong><br><small>${periodDates(period)}</small></td>
+    <td class="number">${number(period.offset)}</td><td class="number">${number(period.socialDays)}</td>
+    <td class="number">${number(period.used)}</td><td class="number ${period.remaining < 0 ? 'over' : ''}">${totalDays(period.remaining)}</td>
+    <td>${button('period-balance', 'adjustBalance', period.id, 'small')}</td></tr>`)
+  const templates = records.periodTemplates.slice().sort((a, b) => a.name.localeCompare(b.name, language))
+    .map(item => `<tr><td><strong>${escape(item.name)}</strong></td><td>${displayDate(item.start)}</td>
+      <td>${button('edit-template', 'edit', item.id, 'small')}</td></tr>`)
+  return heading('periods', button('new-template', 'addTemplate')) +
+    `<section class="panel"><div class="panel-top">
+      ${worker ? `<label>${t('worker')}<select data-filter="period-worker">${options(workers, worker.id)}</select></label>
+        ${button('edit-worker-period', worker.periodStart ? 'editPeriodStart' : 'setPeriodStart', worker.id, 'primary')}`
+        : `<h2>${t('workers')}</h2>${button('new-worker', 'addWorker', '', 'primary')}`}
+      </div>${table(['period', 'offsetDays', 'socialDays', 'used', 'remaining', 'actions'], rows,
+        worker ? 'noWorkerPeriodsHelp' : 'noWorkers')}</section>
+    ${periodHistory(worker)}
+    <section class="panel"><div class="panel-top"><h2>${t('periodTemplates')}</h2></div>
+      ${table(['name', 'start', 'actions'], templates, 'noTemplates')}</section>`
 }
 
 function renderVacations(records) {
+  const workers = new Map(records.workers.map(worker => [worker.id, worker]))
+  const balances = new Map(snapshot.balances.map(balance => [balance.id, balance]))
   const rows = records.vacations.slice().sort((a, b) => b.start.localeCompare(a.start)).map(item => {
-    const worker = records.workers.find(worker => worker.id === item.workerId)
-    const period = records.periods.find(period => period.id === item.periodId)
-    return `<tr><td><strong>${escape(worker.name)}</strong></td><td>${escape(period.name)}</td><td>${displayDate(item.start)}</td>
-      <td>${displayDate(item.end)}</td><td>${number(item.days)}</td><td><div class="actions">
+    const worker = workers.get(item.workerId)
+    const period = balances.get(item.workerId).periods.find(period => period.id === item.periodId)
+    return `<tr><td><strong>${escape(worker.name)}</strong></td><td>${t(item.kind)}</td><td>${period ? escape(periodName(period)) : t('none')}</td>
+      <td>${displayDate(item.start)}</td><td>${displayDate(item.end)}</td><td>${number(item.days)}</td><td><div class="actions">
       ${button('edit-vacation', 'edit', item.id, 'small')}${button('delete-vacation', 'delete', item.id, 'small danger')}</div></td></tr>`
   })
   return heading('vacations', button('new-vacation', 'recordVacation', '', 'primary')) +
-    `<section class="panel">${table(['worker', 'period', 'start', 'end', 'days', 'actions'], rows, 'noVacations')}</section>`
+    `<section class="panel">${table(['worker', 'leaveKind', 'period', 'start', 'end', 'days', 'actions'], rows, 'noVacations')}</section>`
 }
 
 function recordsStatus() {
@@ -233,9 +298,13 @@ function settings() {
     </div></section>
     ${current ? `<section class="panel"><form class="panel-body" data-form="settings">
     <h2>${t('dayCounting')}</h2><p>${t('countingHelp')}</p>
-    <label>${t('countRule')}<select name="counting">${options(['calendar', 'weekdays', 'working'].map(id => ({ id, name: t(id) })), current.counting)}</select></label>
+    <label>${t('countRule')}<select name="counting">${options(['calendar', 'weekdays'].map(id => ({ id, name: t(id) })), current.counting === 'working' ? 'weekdays' : current.counting)}</select></label>
     ${settingsDates('holidays', current.holidays)}
+    <small>${t('holidayHelp')}</small>
     ${settingsDates('deductible', current.deductible)}
+    <h2>${t('periodRules')}</h2>
+    ${field('socialThreshold', 'socialThreshold', current.socialThreshold, 'number', 'required min="0" step="1"')}
+    <small>${t('socialThresholdHelp')}</small>
     <div class="actions"><button class="primary">${t('save')}</button></div>
     <p class="error" role="alert"></p></form></section>` : ''}
     <section class="panel"><div class="panel-body">
@@ -293,12 +362,7 @@ function setSnapshot(result) {
     records: { ...result.records, workers, vacations: result.records.vacations.filter(item => activeIds.has(item.workerId)) },
     balances: result.balances.filter(balance => activeIds.has(balance.id)),
   }
-  const periods = result.records.periods
-  if (!periods.some(item => item.id === periodId)) {
-    const date = today()
-    periodId = periods.find(item => item.start <= date && item.end >= date)?.id ??
-      periods.slice().sort((a, b) => b.start.localeCompare(a.start))[0]?.id ?? ''
-  }
+  if (!workers.some(worker => worker.id === periodWorkerId)) periodWorkerId = ''
   if (!result.records.groups.some(group => group.id === groupId)) groupId = ''
 }
 
@@ -350,6 +414,7 @@ function editor(type, title, content, id = '', submit = 'save') {
 }
 
 const limitInput = value => field('limit', 'limit', value ?? '', 'number', 'min="0" step="1"')
+const changeNameField = () => field('changeName', 'changeName', '', 'text', 'maxlength="160"')
 const nameInput = value => field('name', 'name', value, 'text', 'required maxlength="160" autofocus')
 
 function dateRange({ start = '', end = '' }) {
@@ -370,22 +435,33 @@ function dateRange({ start = '', end = '' }) {
 function chooseRecordDates(target) {
   const form = target.form
   if (form.dataset.saving) return
-  const dates = [form.elements.start.value, form.elements.end.value].filter(Boolean)
+  const dates = [form.elements.start.value, form.elements.end.value]
   openDatePicker({
-    title: t('dateRange'), dates, language, t, today: today(), singleRange: true,
+    title: t('dateRange'), dates, language, t, today: today(), endpoints: true,
     onApply: ([start, end]) => {
       target.closest('.range-field').outerHTML = dateRange({ start, end })
-      if (form.dataset.form === 'vacation') suggestPeriod(form)
-      setFormError(form, '')
+      updateLeaveFields(form)
       form.querySelector('[data-action="record-dates"]').focus()
     },
   })
 }
 
+function workerPeriodFields(worker, required = false) {
+  const templates = snapshot.records.periodTemplates.slice().sort((a, b) => a.name.localeCompare(b.name, language))
+  const last = worker.legacyPeriods?.at(-1)
+  return `<div class="period-fields">
+    ${templates.length ? `<label>${t('periodTemplate')}<select name="templateId">${options(templates, '', 'chooseTemplate')}</select></label>` : ''}
+    ${field('periodStart', 'periodStart', worker.periodStart, 'date', `min="1000-01-01" max="9999-12-31" ${required ? 'required' : ''}`)}
+    ${field('periodName', 'periodName', worker.periodName, 'text', 'maxlength="160"')}
+    <small>${last ? t('legacyPeriodHelp').replace('{date}', displayDate(last.end)) : t('periodStartHelp')}</small>
+    ${worker.periodStart ? `<div data-change-name hidden>${changeNameField()}</div>` : ''}
+  </div>`
+}
+
 function workerEdit(id) {
   const item = snapshot.records.workers.find(item => item.id === id) ?? {}
-  editor('worker', id ? 'editWorker' : 'addWorker',
-    nameInput(item.name) + limitInput(item.limit) + `<small>${t('personalHelp')}</small>` + groupPicker(item.groups), id)
+  editor('worker', id ? 'editWorker' : 'addWorker', nameInput(item.name) + limitInput(item.limit) +
+    `<small>${t('personalHelp')}</small>` + groupPicker(item.groups) + workerPeriodFields(item, !id || Boolean(item.periodStart)), id)
 }
 
 function fireWorker(id) {
@@ -408,36 +484,83 @@ function groupEdit(id) {
   editor('group', id ? 'editGroup' : 'addGroup', nameInput(item.name) + limitInput(item.limit), id)
 }
 
-function periodEdit(id) {
-  const item = snapshot.records.periods.find(item => item.id === id) ?? {}
-  editor('period', id ? 'editPeriod' : 'addPeriod', nameInput(item.name) + dateRange(item), id)
+function templateEdit(id) {
+  const item = snapshot.records.periodTemplates.find(item => item.id === id) ?? {}
+  editor('periodTemplate', id ? 'editTemplate' : 'addTemplate', nameInput(item.name) +
+    field('start', 'start', item.start, 'date', 'required min="1000-01-01" max="9999-12-31"'), id)
 }
 
-function suggestPeriod(form) {
-  if (form.dataset.periodManual) return
-  const start = form.elements.start.value
-  const match = snapshot.records.periods.find(period => period.start <= start && period.end >= start)
-  form.elements.periodId.value = match?.id ?? ''
+function workerPeriodEdit(id) {
+  const worker = snapshot.records.workers.find(item => item.id === id)
+  if (!worker) return toast('recordMissing')
+  editor('workerPeriod', worker.periodStart ? 'editPeriodStart' : 'setPeriodStart',
+    `<strong>${escape(worker.name)}</strong>` + workerPeriodFields(worker, true), id)
+}
+
+function balanceEdit(id) {
+  const workerId = main.querySelector('[data-filter="period-worker"]').value
+  const period = findBalance(workerId).periods.find(period => period.id === id)
+  const reset = period.vacationCeiling === null ? '' :
+    `<label class="check"><input type="checkbox" name="resetRemaining">${t('resetRemaining')}</label>`
+  editor('periodBalance', 'adjustBalance', `
+    <p><strong>${escape(periodName(period))}</strong> · ${periodDates(period)}</p>
+    <input type="hidden" name="periodId" value="${escape(id)}">
+    ${field('remaining', 'setRemaining', '', 'number', 'min="0" step="1"')}
+    <small>${t('remainingNow').replace('{days}', totalDays(period.remaining))}</small>
+    ${reset}
+    ${field('socialTaken', 'socialTaken', period.socialTaken, 'number', 'required min="0" step="1"')}
+    <small>${t('socialTakenHelp')}</small>
+    <div data-change-name hidden>${changeNameField()}</div>`, workerId)
+  dialog.querySelector('[name="socialTaken"]').dataset.original = period.socialTaken
+}
+
+function updateLeaveFields(form) {
+  const worker = snapshot.records.workers.find(item => item.id === form.elements.workerId.value)
+  const { start, end, kind, periodId } = form.elements
+  const annual = kind.value === 'annual'
+  const pickerVisible = Boolean(annual && worker)
+  periodId.closest('.period-choice').hidden = !pickerVisible
+  periodId.disabled = !pickerVisible
+  periodId.required = pickerVisible
+  setFormError(form, '')
+  if (!worker) return
+
+  const through = [today(), start.value, end.value].sort().at(-1)
+  const entries = snapshot.records.vacations.filter(item =>
+    item.workerId === worker.id && (item.id !== form.dataset.id || item.kind === 'annual'))
+  const periods = periodsFor(worker, entries, snapshot.records.settings.socialThreshold, through)
+  if (pickerVisible) {
+    const manual = form.dataset.manualPeriod
+    const selected = periods.some(period => period.id === manual) ? manual : periodOn(periods, start.value)?.id ?? ''
+    const choices = periods.slice().reverse().map(period => ({ id: period.id, name: `${periodName(period)} · ${periodDates(period)}` }))
+    periodId.innerHTML = options(choices, selected, 'choosePeriod')
+    periodId.value = selected
+    if (!periods.length) setFormError(form, 'workerNeedsPeriod')
+    else if (!selected) setFormError(form, 'noPeriodForStart')
+  }
+  if (!annual && !periodOn(periods, start.value)) setFormError(form, 'leaveOutsidePeriod')
 }
 
 function vacationEdit(id, workerId) {
   const records = snapshot.records
-  if (!records.workers.length || !records.periods.length) return toast('vacationNeedsRecords')
+  if (!records.workers.length) return toast('vacationNeedsRecords')
   const item = records.vacations.find(item => item.id === id)
   editor('vacation', item ? 'editVacation' : 'recordVacation',
     `<label>${t('worker')}<select name="workerId" required>${options(records.workers.slice().sort((a, b) => a.name.localeCompare(b.name, language)), item?.workerId ?? workerId, 'chooseWorker')}</select></label>
+    <label>${t('leaveKind')}<select name="kind">${options(leaveKinds.map(id => ({ id, name: t(id) })), item?.kind ?? 'annual')}</select></label>
     ${dateRange(item ?? { start: today(), end: today() })}
-    <label>${t('period')}<select name="periodId" required>${options(records.periods, item?.periodId, 'choosePeriod')}</select></label>
-    <small>${t('periodHelp')}</small>`, id)
-  if (!item) suggestPeriod(dialog.querySelector('form'))
-  else dialog.querySelector('form').dataset.periodManual = 'yes'
+    <div class="period-choice"><label>${t('period')}<select name="periodId"></select></label>
+    <small>${t('periodHelp')}</small></div>`, id)
+  const form = dialog.querySelector('form')
+  if (item?.periodId) form.dataset.manualPeriod = item.periodId
+  updateLeaveFields(form)
 }
 
 function importEditor() {
   editor('import', 'bulkAdd', `<div class="actions">${button('open-file', 'pickFile')}</div>
     ${textarea('names', 'workerRows', '', 'importHelp')}
     <label class="check"><input type="checkbox" name="header">${t('skipHeader')}</label>
-    ${groupPicker()}`, '', 'import')
+    ${groupPicker()}${workerPeriodFields({})}`, '', 'import')
 }
 
 function setFormError(form, error) {
@@ -457,14 +580,21 @@ async function submitForm(event) {
   try {
     const data = new FormData(form)
     const value = Object.fromEntries(data)
-    if ((type === 'period' || type === 'vacation') && (!value.start || !value.end)) {
-      setFormError(form, 'selectRangeStart')
+    if (type === 'vacation' && (!value.start || !value.end)) {
+      setFormError(form, value.start ? 'selectRangeEnd' : 'selectRangeStart')
       form.querySelector('[data-action="record-dates"]').focus()
       return
     }
     if (type === 'worker' || type === 'import') value.groups = data.getAll('groups')
     if (type === 'worker' || type === 'group') value.limit = value.limit === '' ? null : Number(value.limit)
+    if (type === 'periodBalance') {
+      value.socialTaken = Number(value.socialTaken)
+      if (value.resetRemaining) value.remaining = null
+      else if (value.remaining) value.remaining = Number(value.remaining)
+      else delete value.remaining
+    }
     if (type === 'settings') {
+      value.socialThreshold = Number(value.socialThreshold)
       value.holidays = data.getAll('holidays')
       value.deductible = data.getAll('deductible')
     }
@@ -492,13 +622,15 @@ async function submitForm(event) {
 }
 
 function applyFilter(input) {
-  if (input.dataset.filter === 'period') periodId = input.value
-  if (input.dataset.filter === 'group') groupId = input.value
-  if (input.dataset.filter === 'sort') sortBy = input.value
-  if (input.dataset.filter === 'search') search = input.value
-  if (input.dataset.filter === 'period') {
+  const filter = input.dataset.filter
+  if (filter === 'date' && (!input.value || isRecordDate(input.value) && input.value <= today())) balanceDate = input.value
+  if (filter === 'group') groupId = input.value
+  if (filter === 'sort') sortBy = input.value
+  if (filter === 'search') search = input.value
+  if (filter === 'period-worker') {
+    periodWorkerId = input.value
     render()
-    main.querySelector('[data-filter="period"]').focus()
+    main.querySelector('[data-filter="period-worker"]').focus()
   } else {
     document.querySelector('#worker-results').innerHTML = workerResults(snapshot.records, page === 'overview')
   }
@@ -517,10 +649,38 @@ document.addEventListener('change', event => {
   }
   if (source.dataset.filter && source.dataset.filter !== 'search') applyFilter(source)
   const form = source.form
-  if (form?.dataset.form === 'vacation' && source.name === 'periodId') form.dataset.periodManual = 'yes'
+  if (source.name === 'templateId') {
+    const template = snapshot.records.periodTemplates.find(item => item.id === source.value)
+    if (template) {
+      form.elements.periodName.value = template.name
+      form.elements.periodStart.value = template.start
+      setFormError(form, '')
+    }
+  }
+  if (source.name === 'templateId' || source.name === 'periodStart') showChangeName(form?.elements.periodStart)
+  if (source.name === 'resetRemaining') form.elements.remaining.disabled = source.checked
+  if (form?.dataset.form === 'vacation') {
+    if (source.name === 'workerId') {
+      delete form.dataset.manualPeriod
+      updateLeaveFields(form)
+    }
+    if (source.name === 'kind') updateLeaveFields(form)
+    if (source.name === 'periodId') {
+      form.dataset.manualPeriod = source.value
+      setFormError(form, source.value ? '' : 'noPeriodForStart')
+    }
+  }
 })
+function showChangeName(input) {
+  const field = input?.form?.querySelector('[data-change-name]')
+  if (!field) return
+  field.hidden = input.value === (input.dataset.original ?? input.defaultValue)
+  field.querySelector('input').disabled = field.hidden
+}
+
 document.addEventListener('input', event => {
   if (event.target.dataset.filter === 'search') applyFilter(event.target)
+  if (['periodStart', 'socialTaken'].includes(event.target.name)) showChangeName(event.target)
 })
 dialog.addEventListener('cancel', event => {
   if (dialog.querySelector('form')?.dataset.saving) event.preventDefault()
@@ -555,7 +715,15 @@ document.addEventListener('click', async event => {
     case 'fire-worker': fireWorker(id); break
     case 'recover-workers': recoverWorkers(); break
     case 'new-group': case 'edit-group': groupEdit(id); break
-    case 'new-period': case 'edit-period': periodEdit(id); break
+    case 'worker-periods':
+      periodWorkerId = id
+      page = 'periods'
+      render()
+      main.querySelector('h1').focus()
+      break
+    case 'edit-worker-period': workerPeriodEdit(id); break
+    case 'period-balance': balanceEdit(id); break
+    case 'new-template': case 'edit-template': templateEdit(id); break
     case 'new-vacation': case 'edit-vacation': vacationEdit(id); break
     case 'vacation-for': vacationEdit('', id); break
     case 'delete-vacation': editor('deleteVacation', 'deleteVacation', `<p>${t('deleteHelp')}</p>`, id, 'delete'); break

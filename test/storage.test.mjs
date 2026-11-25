@@ -15,6 +15,12 @@ const legacyRecords = {
   settings: { counting: 'working', holidays: ['2026-01-02'], deductible: [] },
 }
 
+const migratedWorker = { ...legacyRecords.workers[0], legacyPeriods: legacyRecords.periods,
+  periodStart: '2028-01-01', periodHistory: [{ type: 'startImported', to: '2026-01-01',
+    recurringStart: '2028-01-01', recordedAt: null, changes: [] }] }
+const migratedVacation = { ...legacyRecords.vacations[0], kind: 'annual',
+  dayRule: { counting: 'working', deductible: [] }, daysBeforeHolidays: 4 }
+
 async function directoryFor(t) {
   const directory = await mkdtemp(join(tmpdir(), 'rvacation-test-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
@@ -70,16 +76,21 @@ test('the old service database migrates in place with its revision and recorded 
   writeLegacy(file)
   const records = openRecords(file)
   try {
-    assert.deepEqual(records.read(), {
-      revision: 7, records: legacyRecords,
-      balances: [{ id: 'worker', rule: { max: 2, personal: false, groupNames: ['Office'] }, used: { period: 3 } }],
-    })
+    const saved = records.read()
+    assert.equal(saved.revision, 7)
+    assert.deepEqual(saved.records.workers, [migratedWorker])
+    assert.deepEqual(saved.records.periodTemplates, [{ id: 'period', name: '26/27', start: '2026-01-01' }])
+    assert.deepEqual(saved.records.vacations, [migratedVacation])
+    assert.deepEqual(saved.balances[0].rule, { max: 2, personal: false, groupNames: ['Office'] })
+    const old = saved.balances[0].periods.find(period => period.id === 'period')
+    assert.equal(old.used, 3)
+    assert.equal(old.remaining, -1)
   } finally {
     records.close()
   }
   const database = new DatabaseSync(file)
   try {
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 1)
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 2)
   } finally {
     database.close()
   }
@@ -93,7 +104,7 @@ test('firing and recovering a worker preserves vacation history and allowance ac
   try {
     archived = before.change({ revision: 7, change: { type: 'fireWorker', id: 'worker', value: {} } })
     assert.equal(archived.records.workers[0].fired, true)
-    assert.deepEqual(archived.records.vacations, legacyRecords.vacations)
+    assert.deepEqual(archived.records.vacations, [migratedVacation])
   } finally {
     before.close()
   }
@@ -105,8 +116,8 @@ test('firing and recovering a worker preserves vacation history and allowance ac
       revision: 8, change: { type: 'vacation', value: { workerId: 'worker', periodId: 'period', start: '2026-03-01', end: '2026-03-02' } },
     }), { message: 'recordMissing' })
     const restored = reopened.change({ revision: 8, change: { type: 'recoverWorker', id: 'worker', value: {} } })
-    assert.deepEqual(restored.records.workers, [{ ...legacyRecords.workers[0], fired: false }])
-    assert.deepEqual(restored.records.vacations, legacyRecords.vacations)
+    assert.deepEqual(restored.records.workers, [{ ...migratedWorker, fired: false }])
+    assert.deepEqual(restored.records.vacations, [migratedVacation])
     assert.deepEqual(restored.balances, archived.balances)
   } finally {
     reopened.close()
@@ -126,11 +137,46 @@ test('import preserves old records and cannot overwrite local changes', async t 
     assert.equal(records.read().revision, 0)
     const imported = records.importLegacy(source)
     assert.equal(imported.revision, 1)
-    assert.deepEqual(imported.records, legacyRecords)
+    assert.deepEqual(imported.records.workers, [migratedWorker])
+    assert.deepEqual(imported.records.vacations, [migratedVacation])
+    assert.deepEqual(imported.records.groups, legacyRecords.groups)
     const saved = records.change(addWorker(1))
     assert.throws(() => records.importLegacy(source), { message: 'databaseImportUnavailable' })
     assert.deepEqual(records.read(), saved)
     assert.deepEqual(await readFile(source), original)
+  } finally {
+    records.close()
+  }
+})
+
+test('upgrades an existing desktop database from schema version one', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  writeLegacy(file)
+  const source = new DatabaseSync(file)
+  try {
+    source.exec('PRAGMA user_version = 1')
+  } finally {
+    source.close()
+  }
+  const records = openRecords(file)
+  try {
+    const saved = records.read()
+    assert.equal(saved.revision, 7)
+    assert.deepEqual(saved.records.workers, [migratedWorker])
+    assert.deepEqual(saved.records.vacations, [migratedVacation])
+  } finally {
+    records.close()
+  }
+})
+
+test('migration returns a configured holiday that was charged at the full rate', async t => {
+  const file = join(await directoryFor(t), 'rvacation.sqlite')
+  writeLegacy(file, { ...legacyRecords, settings: { ...legacyRecords.settings, counting: 'calendar' } })
+  const records = openRecords(file)
+  try {
+    const { vacations } = records.read().records
+    assert.equal(vacations[0].days, 2)
+    assert.equal(vacations[0].daysBeforeHolidays, 3)
   } finally {
     records.close()
   }
